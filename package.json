@@ -22,7 +22,7 @@
     "tailwind-merge": "^2.2.0",
     "d3": "^7.9.0",
     "mermaid": "^11.12.1",
-    "pdfjs-dist": "4.0.379"
+    "pdfjs-dist": "3.11.174"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

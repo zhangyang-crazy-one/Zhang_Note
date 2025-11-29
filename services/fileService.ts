@@ -3,9 +3,16 @@ import { MarkdownFile } from '../types';
 import { GoogleGenAI } from "@google/genai";
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Configure PDF.js Worker using the ESM build + minified worker script
-// We use .mjs to match the ESM module type of the main library to prevent "Failed to fetch dynamically imported module" errors
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
+// Configure PDF.js Worker
+// Handle ESM import inconsistencies (sometimes it's on .default, sometimes root)
+const pdfjs: any = pdfjsLib;
+if (typeof window !== 'undefined' && pdfjs) {
+  if (pdfjs.GlobalWorkerOptions) {
+    pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  } else if (pdfjs.default && pdfjs.default.GlobalWorkerOptions) {
+    pdfjs.default.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  }
+}
 
 declare global {
   interface Window {
@@ -53,8 +60,9 @@ export const saveFileToDisk = async (file: MarkdownFile): Promise<void> => {
 export const processPdfFile = async (file: File, apiKey?: string): Promise<string> => {
   const arrayBuffer = await file.arrayBuffer();
   
-  // Use the imported module instead of window.pdfjsLib
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  // Use the imported module, handling potential default export wrapper
+  const docInit = pdfjs.default?.getDocument ? pdfjs.default.getDocument : pdfjs.getDocument;
+  const pdf = await docInit({ data: arrayBuffer }).promise;
   
   let fullText = "";
   let useVision = false;

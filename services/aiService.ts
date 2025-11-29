@@ -6,6 +6,7 @@ import { AIConfig, MarkdownFile, GraphData, Quiz } from "../types";
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 
 // Initialize Gemini Client
+// We create a new instance per request to ensure fresh config/keys
 const getClient = (apiKey?: string) => new GoogleGenAI({ apiKey: apiKey || process.env.API_KEY });
 
 // --- Function Declarations for AI File Manipulation ---
@@ -45,10 +46,25 @@ const deleteFileParams = {
   }
 };
 
-// Helper to sanitize code blocks
+// Helper to sanitize code blocks and extract JSON
 const cleanCodeBlock = (text: string): string => {
-  return text.replace(/```[a-z]*\n/gi, '').replace(/```/g, '').trim();
+  // Remove markdown code block syntax
+  let cleaned = text.replace(/```[a-z]*\n?/gi, '').replace(/```/g, '').trim();
+  return cleaned;
 };
+
+// Robust JSON extractor that finds the first '{' and last '}'
+const extractJson = (text: string): string => {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start !== -1 && end !== -1 && end > start) {
+    return text.substring(start, end + 1);
+  }
+  return cleanCodeBlock(text);
+};
+
+// Helper for delay
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export const generateAIResponse = async (
   prompt: string, 
@@ -63,7 +79,7 @@ export const generateAIResponse = async (
   let fullPrompt = prompt;
   if (contextFiles.length > 0) {
     const contextStr = contextFiles.map(f => `--- File: ${f.name} ---\n${f.content}`).join('\n\n');
-    const truncatedContext = contextStr.substring(0, 100000); 
+    const truncatedContext = contextStr.substring(0, 50000); 
     fullPrompt = `Context from user knowledge base:\n${truncatedContext}\n\nUser Query: ${prompt}`;
   }
   
@@ -75,7 +91,7 @@ export const generateAIResponse = async (
   const finalSystemInstruction = (systemInstruction || "") + langInstruction;
 
   if (config.provider === 'gemini') {
-    return callGemini(fullPrompt, config.model, finalSystemInstruction, jsonMode, toolsCallback);
+    return callGemini(fullPrompt, config.model, finalSystemInstruction, jsonMode, toolsCallback, config.apiKey);
   } else if (config.provider === 'ollama') {
     return callOllama(fullPrompt, config, finalSystemInstruction, jsonMode);
   } else if (config.provider === 'openai') {
@@ -89,12 +105,14 @@ const callGemini = async (
   modelName: string, 
   systemInstruction?: string, 
   jsonMode: boolean = false,
-  toolsCallback?: (toolName: string, args: any) => Promise<any>
+  toolsCallback?: (toolName: string, args: any) => Promise<any>,
+  apiKey?: string,
+  retries = 3
 ): Promise<string> => {
   try {
-    const client = getClient();
+    const client = getClient(apiKey);
     
-    // Add tools if callback provided
+    // Construct config object carefully. 
     const tools = toolsCallback ? [{
       functionDeclarations: [
         createFileParams,
@@ -103,14 +121,22 @@ const callGemini = async (
       ] as FunctionDeclaration[]
     }] : undefined;
 
+    const generateConfig: any = {
+      systemInstruction: systemInstruction,
+    };
+
+    if (jsonMode) {
+      generateConfig.responseMimeType = 'application/json';
+    }
+    
+    if (tools) {
+      generateConfig.tools = tools;
+    }
+
     const response = await client.models.generateContent({
       model: modelName || DEFAULT_GEMINI_MODEL,
       contents: prompt,
-      config: {
-        systemInstruction: systemInstruction,
-        responseMimeType: jsonMode ? 'application/json' : 'text/plain',
-        tools: tools,
-      }
+      config: generateConfig
     });
 
     // Handle Function Calls
@@ -126,9 +152,28 @@ const callGemini = async (
     }
 
     return response.text || '';
-  } catch (error) {
-    console.error("Gemini API Error:", error);
-    throw new Error("Failed to communicate with Google Gemini. Please check your network or API limits.");
+  } catch (error: any) {
+    console.warn(`Gemini Attempt Failed (Retries left: ${retries}):`, error.message);
+
+    // Check for retryable errors (XHR, Network, 5xx)
+    const isNetworkError = error.message && (
+        error.message.includes("xhr error") || 
+        error.message.includes("fetch failed") ||
+        error.message.includes("NetworkError") ||
+        error.status === 503 || 
+        error.status === 500
+    );
+
+    if (isNetworkError && retries > 0) {
+        const waitTime = 2000; // Wait 2 seconds before retry
+        await delay(waitTime); 
+        return callGemini(prompt, modelName, systemInstruction, jsonMode, toolsCallback, apiKey, retries - 1);
+    }
+
+    if (error.message && error.message.includes("xhr error")) {
+       throw new Error("Network error connecting to Gemini. Please check your internet connection or reduce the amount of content.");
+    }
+    throw new Error(`Gemini Error: ${error.message || "Unknown error"}`);
   }
 };
 
@@ -190,30 +235,87 @@ export const expandContent = async (content: string, config: AIConfig): Promise<
 };
 
 export const generateKnowledgeGraph = async (files: MarkdownFile[], config: AIConfig): Promise<GraphData> => {
-  const combinedContent = files.map(f => `--- File: ${f.name} ---\n${f.content}`).join('\n\n');
-  const prompt = `Analyze the following markdown notes. Identify key concepts (as nodes) and their relationships (as links). 
-  Return a strictly valid JSON object with this structure:
-  {
-    "nodes": [{"id": "ConceptName", "label": "ConceptName", "val": 1}],
-    "links": [{"source": "ConceptName", "target": "RelatedConceptName", "relationship": "contains"}]
-  }
-  Limit to the most important 20-30 nodes. Ensure source/target IDs match node IDs exactly.
+  // Use distinct delimiters to help AI differentiate file boundaries vs content
+  const combinedContent = files.map(f => `<<< FILE_START: ${f.name} >>>\n${f.content}\n<<< FILE_END >>>`).join('\n\n');
   
-  Content to analyze:
-  ${combinedContent.substring(0, 50000)} 
+  // Reduced payload limit to 15,000 characters to prevent XHR/Timeout errors
+  const prompt = `Task: Generate a comprehensive Knowledge Graph from the provided notes.
+  
+  Goal: Identify granular concepts (entities) and their inter-relationships across the entire knowledge base, NOT just file summaries.
+  
+  STRICT INSTRUCTIONS:
+  1. **Entities, Not Files**: Do NOT create nodes for file names (like "Untitled-1"). Instead, extract specific concepts, technologies, people, or definitions mentioned *within* the text.
+  2. **Cross-File Linking**: Connect concepts that appear in different files if they are related. 
+     - Example: If File A mentions "React" and File B mentions "JSX", link "React" -> "JSX" with "uses".
+  3. **Abstraction**: Identify higher-level abstract concepts that link granular details together.
+  4. **Canonical Naming**: Merge duplicates (e.g. "JS" and "JavaScript" should be one node).
+  
+  Output Format: STRICT JSON ONLY. No markdown code blocks.
+  Structure:
+  {
+    "nodes": [
+      { "id": "UniqueConceptId", "label": "Readable Label", "val": 10, "group": 1 } 
+    ],
+    "links": [
+      { "source": "UniqueConceptId", "target": "OtherConceptId", "relationship": "is part of" }
+    ]
+  }
+
+  Important: "val" in nodes determines size (1-10). "group" is optional (1-5) for clustering.
+  
+  Content to Analyze:
+  ${combinedContent.substring(0, 15000)}
   `; 
   
-  const systemPrompt = "You are a Knowledge Graph extraction engine. Output JSON only.";
+  const systemPrompt = "You are an expert Knowledge Graph Architect. You ignore file metadata and extract semantic relationships from text content. You output valid JSON only.";
   
   try {
     const jsonStr = await generateAIResponse(prompt, config, systemPrompt, true);
-    const cleanedJson = cleanCodeBlock(jsonStr);
-    return JSON.parse(cleanedJson) as GraphData;
+    const cleanedJson = extractJson(jsonStr);
+    const parsed = JSON.parse(cleanedJson) as GraphData;
+
+    // Basic Validation
+    if (!parsed.nodes || !Array.isArray(parsed.nodes)) throw new Error("Invalid Graph JSON: missing nodes array");
+    
+    // Ensure nodes have required fields
+    parsed.nodes = parsed.nodes.map(n => ({
+      ...n,
+      id: n.id || n.label,
+      label: n.label || n.id,
+      val: n.val || 5
+    }));
+
+    return parsed;
   } catch (e) {
-    console.error("Graph Parsing Error", e);
+    console.warn("Graph Generation failed (likely network), using fallback:", e);
+    
+    // Fallback: Create a simple graph from headings if AI fails
+    const nodes: any[] = [];
+    const links: any[] = [];
+    
+    files.forEach(f => {
+       // Extract headings as nodes
+       const headings = f.content.match(/^#{1,3}\s+(.+)$/gm);
+       if (headings) {
+         headings.forEach(h => {
+            const label = h.replace(/^#+\s+/, '').trim();
+            // Avoid duplicate IDs
+            if (!nodes.find(n => n.id === label)) {
+                nodes.push({ id: label, label, val: 5 });
+            }
+         });
+         // Link headings in same file sequentially
+         for(let i=0; i<headings.length-1; i++) {
+            const src = headings[i].replace(/^#+\s+/, '').trim();
+            const trg = headings[i+1].replace(/^#+\s+/, '').trim();
+            links.push({ source: src, target: trg, relationship: 'related' });
+         }
+       }
+    });
+    
     return {
-      nodes: files.map(f => ({ id: f.name, label: f.name, val: 5 })),
-      links: []
+      nodes: nodes.length > 0 ? nodes.slice(0, 50) : files.map(f => ({ id: f.name, label: f.name, val: 5 })),
+      links: links.slice(0, 40)
     };
   }
 };
@@ -226,7 +328,7 @@ export const synthesizeKnowledgeBase = async (files: MarkdownFile[], config: AIC
   3. Produce a new comprehensive "Master Summary" in Markdown format.
   
   Notes:
-  ${combinedContent.substring(0, 50000)}
+  ${combinedContent.substring(0, 30000)}
   `;
 
   const systemPrompt = "You are a Knowledge Manager. Summarize and organize notes into a single cohesive markdown document.";
@@ -234,53 +336,54 @@ export const synthesizeKnowledgeBase = async (files: MarkdownFile[], config: AIC
 };
 
 export const generateMindMap = async (content: string, config: AIConfig): Promise<string> => {
-  // MindMap generation needs to be very strict to avoid rendering errors
   const langPrompt = config.language === 'zh' ? "Use Chinese for all node labels." : "Use English.";
   
-  const prompt = `Create a Mermaid.js MindMap syntax based on the following text.
+  const prompt = `Create a hierarchical Mermaid.js MindMap syntax based on the following text.
   
-  RULES:
-  1. Start directly with the keyword 'mindmap'.
-  2. Use strictly 2 spaces for indentation.
-  3. Keep node labels short (max 5-6 words).
-  4. Do NOT use special characters like colon (:), parens (), or quotes inside node labels unless wrapped in quotes.
-  5. Do NOT wrap the output in markdown code blocks (no \`\`\`).
-  6. Return raw mermaid code only.
-  7. ${langPrompt}
+  STRICT RULES FOR MINDMAP:
+  1. Start directly with 'mindmap'.
+  2. **Hierarchical Structure:** Do NOT create a flat list. Use indentation (2 spaces) to show at least 3-4 levels of depth.
+     - Root
+       - Main Concept
+         - Sub-concept
+           - Detail
+  3. **Categorization:** Group related ideas together logically.
+  4. **Concise Labels:** Keep node text short (max 3-5 words).
+  5. Do not use special characters or parentheses in node labels.
+  6. ${langPrompt}
 
-  Structure example:
+  Example Output:
   mindmap
-    Root
-      Node1
-        LeafA
-        LeafB
-      Node2
+    root((Central Topic))
+      Origins
+        History
+        Founders
+      Mechanisms
+        Process A
+          Step 1
+          Step 2
+        Process B
   
   Content to visualize:
-  ${content.substring(0, 20000)}
+  ${content.substring(0, 15000)}
   `;
   
-  const systemPrompt = "You are a Visualization Expert. Output strictly valid Mermaid mindmap syntax only. No explanations.";
+  const systemPrompt = "You are a Visualization Expert. Output strictly valid Mermaid mindmap syntax only. Ensure deep, branched structure.";
   const result = await generateAIResponse(prompt, config, systemPrompt);
   
   // Robust Cleanup
   let clean = cleanCodeBlock(result);
   
-  // Fix common AI formatting errors
-  // 1. Remove "mermaid" if it appears as the first line (common hallucination)
   if (clean.toLowerCase().startsWith('mermaid')) {
     clean = clean.split('\n').slice(1).join('\n').trim();
   }
   
-  // 2. Ensure it starts with mindmap
   if (!clean.toLowerCase().startsWith('mindmap')) {
     clean = 'mindmap\n' + clean;
   }
 
-  // 3. Remove lines that might be conversational filler
   clean = clean.split('\n').filter(line => {
     const trimmed = line.trim();
-    // Filter out lines that are likely markdown or chat
     if (trimmed.startsWith('```')) return false;
     if (trimmed === 'mermaid') return false; 
     return true;
@@ -325,14 +428,15 @@ export const generateQuiz = async (content: string, config: AIConfig): Promise<Q
   }
 
   Content:
-  ${content.substring(0, 50000)}
+  ${content.substring(0, 40000)}
   `;
   
   const systemPrompt = "You are an expert Teacher. Create a challenging and accurate educational quiz in JSON format.";
   
   try {
     const jsonStr = await generateAIResponse(prompt, config, systemPrompt, true);
-    const cleanedJson = cleanCodeBlock(jsonStr);
+    // Use robust extractor
+    const cleanedJson = extractJson(jsonStr);
     return JSON.parse(cleanedJson) as Quiz;
   } catch (e) {
     console.error("Quiz Parsing Error", e);

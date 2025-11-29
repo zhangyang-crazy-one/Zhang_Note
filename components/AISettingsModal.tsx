@@ -35,18 +35,17 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({
   const [tempConfig, setTempConfig] = useState<AIConfig>(config);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // Use config state for language during edit, but respect prop for UI labels initially
-  // Actually, we should probably use tempConfig.language for the UI inside the modal to show immediate preview? 
-  // Standard practice is usually UI follows app state until saved, but user asked "click save settings... system options don't turn into Chinese".
-  // This implies they want the UI to update. The App updates lang prop when `onSave` is called.
-  // So using `translations[language]` is correct.
-  const t = translations[language];
-
+  // Update internal state when prop changes (opening modal)
   React.useEffect(() => {
     if (isOpen) setTempConfig(config);
   }, [isOpen, config]);
 
   if (!isOpen) return null;
+
+  // Use the TEMPORARY language selection for translation lookup inside the modal
+  // This allows the user to see the UI change language instantly when clicking options
+  const currentUiLang: Language = tempConfig.language === 'zh' ? 'zh' : 'en';
+  const t = translations[currentUiLang];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

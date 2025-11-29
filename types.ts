@@ -1,4 +1,5 @@
 
+
 export interface MarkdownFile {
   id: string;
   name: string;
@@ -115,4 +116,14 @@ export interface Quiz {
   questions: QuizQuestion[];
   isGraded: boolean;
   score?: number;
+}
+
+export interface MistakeRecord {
+  id: string;
+  question: string;
+  userAnswer: string;
+  correctAnswer: string;
+  explanation?: string;
+  timestamp: number;
+  quizTitle?: string;
 }

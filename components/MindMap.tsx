@@ -15,7 +15,7 @@ export const MindMap: React.FC<MindMapProps> = ({ content, theme, language = 'en
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
-  const [scale, setScale] = useState(1.2);
+  const [scale, setScale] = useState(1.0);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const isDragging = useRef(false);
   const lastPos = useRef({ x: 0, y: 0 });
@@ -25,13 +25,13 @@ export const MindMap: React.FC<MindMapProps> = ({ content, theme, language = 'en
     // Cyber/Neon Theme Configuration
     const isDark = theme === 'dark';
     
-    // Vibrant Neon Palette
-    const primaryColor = isDark ? '#22d3ee' : '#0891b2'; // Cyan-400 : Cyan-700
-    const secondaryColor = isDark ? '#a78bfa' : '#7c3aed'; // Violet-400 : Violet-700
-    const tertiaryColor = isDark ? '#34d399' : '#059669'; // Emerald-400 : Emerald-700
-    const bgColor = isDark ? '#0f172a' : '#ffffff'; // Slate-900 : White
+    // Vibrant Neon Palette for Cyber look
+    const primaryColor = isDark ? '#06b6d4' : '#0891b2'; // Cyan
+    const secondaryColor = isDark ? '#8b5cf6' : '#7c3aed'; // Violet
+    const tertiaryColor = isDark ? '#10b981' : '#059669'; // Emerald
+    const bgColor = 'transparent';
     const textColor = isDark ? '#f1f5f9' : '#1e293b'; // Slate-100 : Slate-800
-    const lineColor = isDark ? '#475569' : '#94a3b8'; // Slate-600 : Slate-400
+    const lineColor = isDark ? '#64748b' : '#94a3b8'; // Slate-500
 
     mermaid.initialize({
       startOnLoad: false,
@@ -41,7 +41,7 @@ export const MindMap: React.FC<MindMapProps> = ({ content, theme, language = 'en
       flowchart: { htmlLabels: true },
       mindmap: {
         useMaxWidth: false,
-        padding: 40, // More space
+        padding: 50, // Much more space between nodes
       },
       themeVariables: {
         primaryColor: primaryColor,
@@ -51,11 +51,11 @@ export const MindMap: React.FC<MindMapProps> = ({ content, theme, language = 'en
         secondaryColor: secondaryColor,
         tertiaryColor: tertiaryColor,
         fontFamily: 'JetBrains Mono, monospace',
-        fontSize: '18px', // Larger font for readability
+        fontSize: '24px', // Significantly larger font
         
-        // Specific MindMap Variables to enforce the look
+        // Specific MindMap Variables
         mindmapShapeBorderColor: primaryColor,
-        mindmapBkgColor: isDark ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.8)',
+        mindmapBkgColor: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
         mainBkg: bgColor,
         nodeBorder: primaryColor,
         clusterBkg: 'rgba(255,255,255,0.05)',
@@ -73,7 +73,7 @@ export const MindMap: React.FC<MindMapProps> = ({ content, theme, language = 'en
         // Attempt to render
         const { svg: generatedSvg } = await mermaid.render(id, content);
         
-        // Style injection to fix sizing and add glow
+        // Style injection to fix sizing and add glow effects via CSS classes
         const cleanSvg = generatedSvg
           .replace(/max-width:[^;]+;/g, '')
           .replace(/height:[^;]+;/g, '')
@@ -81,7 +81,7 @@ export const MindMap: React.FC<MindMapProps> = ({ content, theme, language = 'en
 
         setSvg(cleanSvg);
         // Reset view on new content
-        setScale(1.2);
+        setScale(1.0);
         setPosition({ x: 0, y: 0 });
       } catch (e: any) {
         console.error("Mermaid Render Error", e);
@@ -120,7 +120,7 @@ export const MindMap: React.FC<MindMapProps> = ({ content, theme, language = 'en
   return (
     <div className="w-full h-full bg-paper-50 dark:bg-cyber-900 overflow-hidden relative group font-mono selection:bg-cyan-500/30">
       {/* Background Grid Pattern */}
-      <div className="absolute inset-0 opacity-10 pointer-events-none" 
+      <div className="absolute inset-0 opacity-20 pointer-events-none" 
            style={{ 
              backgroundImage: `linear-gradient(${theme === 'dark' ? '#334155' : '#cbd5e1'} 1px, transparent 1px), linear-gradient(90deg, ${theme === 'dark' ? '#334155' : '#cbd5e1'} 1px, transparent 1px)`, 
              backgroundSize: '40px 40px' 
@@ -133,7 +133,7 @@ export const MindMap: React.FC<MindMapProps> = ({ content, theme, language = 'en
       {/* Controls */}
       <div className="absolute bottom-6 right-6 z-20 flex flex-col gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
         <button onClick={() => setScale(s => Math.min(8, s + 0.2))} className="p-2 bg-white dark:bg-cyber-800 rounded-lg shadow-lg border border-paper-200 dark:border-cyber-700 hover:bg-paper-100 dark:hover:bg-cyber-700 text-slate-700 dark:text-slate-200"><ZoomIn size={20} /></button>
-        <button onClick={() => { setScale(1.2); setPosition({x:0, y:0}); }} className="p-2 bg-white dark:bg-cyber-800 rounded-lg shadow-lg border border-paper-200 dark:border-cyber-700 hover:bg-paper-100 dark:hover:bg-cyber-700 text-slate-700 dark:text-slate-200"><Maximize size={20} /></button>
+        <button onClick={() => { setScale(1.0); setPosition({x:0, y:0}); }} className="p-2 bg-white dark:bg-cyber-800 rounded-lg shadow-lg border border-paper-200 dark:border-cyber-700 hover:bg-paper-100 dark:hover:bg-cyber-700 text-slate-700 dark:text-slate-200"><Maximize size={20} /></button>
         <button onClick={() => setScale(s => Math.max(0.1, s - 0.2))} className="p-2 bg-white dark:bg-cyber-800 rounded-lg shadow-lg border border-paper-200 dark:border-cyber-700 hover:bg-paper-100 dark:hover:bg-cyber-700 text-slate-700 dark:text-slate-200"><ZoomOut size={20} /></button>
       </div>
 
@@ -164,7 +164,15 @@ export const MindMap: React.FC<MindMapProps> = ({ content, theme, language = 'en
                     transition: isDragging.current ? 'none' : 'transform 0.1s ease-out'
                 }}
                 dangerouslySetInnerHTML={{ __html: svg }}
-                className={`mermaid-container [&>svg]:overflow-visible [&_g.node]:transition-all [&_path]:stroke-[2px] ${theme === 'dark' ? '[&_path]:stroke-cyan-400 [&_rect]:stroke-cyan-500 [&_rect]:stroke-[2px]' : ''}`}
+                className={`
+                    mermaid-container 
+                    [&>svg]:overflow-visible 
+                    [&_g.node]:transition-all 
+                    [&_path]:stroke-[3px] 
+                    ${theme === 'dark' 
+                        ? '[&_path]:stroke-cyan-500/50 [&_rect]:stroke-cyan-400 [&_rect]:stroke-[2px] [&_rect]:shadow-[0_0_10px_cyan] [&_text]:fill-slate-100' 
+                        : '[&_path]:stroke-cyan-600/50 [&_rect]:stroke-cyan-600 [&_rect]:stroke-[2px]'}
+                `}
             />
         </div>
       )}
