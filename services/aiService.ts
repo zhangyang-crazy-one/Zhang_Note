@@ -1,4 +1,6 @@
 
+
+
 import { GoogleGenAI, FunctionDeclaration, Type } from "@google/genai";
 import { AIConfig, MarkdownFile, GraphData, Quiz, QuizQuestion } from "../types";
 
@@ -372,20 +374,6 @@ const callGemini = async (
     const client = getClient(config.apiKey);
     const modelName = config.model;
 
-    // Prepare Tools
-    let tools = undefined;
-    if (toolsCallback) {
-        // Base File Tools
-        const baseTools: FunctionDeclaration[] = [createFileParams, updateFileParams, deleteFileParams];
-        
-        // Dynamic MCP Tools
-        const dynamicTools = mcpClient ? mcpClient.getTools() : [];
-
-        tools = [{
-            functionDeclarations: [...baseTools, ...dynamicTools]
-        }];
-    }
-
     const generateConfig: any = {
       systemInstruction: systemInstruction,
     };
@@ -393,9 +381,23 @@ const callGemini = async (
     if (jsonMode) {
       generateConfig.responseMimeType = 'application/json';
     }
-    
-    if (tools) {
-      generateConfig.tools = tools;
+
+    // Handle Web Search (Gemini only)
+    if (config.enableWebSearch && !jsonMode) {
+       generateConfig.tools = [{ googleSearch: {} }];
+    } 
+    // Only add Function Calling tools if Web Search is NOT active
+    // The prompt explicitly states: "Only tools: googleSearch is permitted. Do not use it with other tools."
+    else if (toolsCallback) {
+        // Base File Tools
+        const baseTools: FunctionDeclaration[] = [createFileParams, updateFileParams, deleteFileParams];
+        
+        // Dynamic MCP Tools
+        const dynamicTools = mcpClient ? mcpClient.getTools() : [];
+
+        generateConfig.tools = [{
+            functionDeclarations: [...baseTools, ...dynamicTools]
+        }];
     }
 
     const response = await client.models.generateContent({
@@ -404,8 +406,26 @@ const callGemini = async (
       config: generateConfig
     });
 
-    // Handle Function Calls
-    if (response.functionCalls && toolsCallback) {
+    let outputText = response.text || '';
+
+    // Handle Grounding Metadata (Sources)
+    if (config.enableWebSearch && response.candidates?.[0]?.groundingMetadata?.groundingChunks) {
+      const chunks = response.candidates[0].groundingMetadata.groundingChunks;
+      const links: string[] = [];
+      
+      chunks.forEach((chunk: any) => {
+        if (chunk.web && chunk.web.uri && chunk.web.title) {
+          links.push(`- [${chunk.web.title}](${chunk.web.uri})`);
+        }
+      });
+
+      if (links.length > 0) {
+        outputText += `\n\n### Sources\n${links.join('\n')}`;
+      }
+    }
+
+    // Handle Function Calls (only if not searching)
+    if (response.functionCalls && toolsCallback && !config.enableWebSearch) {
       const calls = response.functionCalls;
       let toolOutputs: string[] = [];
       
@@ -416,7 +436,7 @@ const callGemini = async (
       return toolOutputs.join('\n') + "\n\n(AI performed operations based on your request)";
     }
 
-    return response.text || '';
+    return outputText;
   } catch (error: any) {
     console.warn(`Gemini Attempt Failed (Retries left: ${retries}):`, error.message);
     const isNetworkError = error.message && (

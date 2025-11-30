@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useRef, useMemo } from 'react';
 import { X, Save, Server, Cpu, Key, Globe, Palette, Upload, Trash2, Check, Download, Plus, Languages, MessageSquare, ChevronDown, Wrench, AlertTriangle, Play, Terminal, Code2, Box } from 'lucide-react';
 import { AIConfig, AppTheme } from '../types';
@@ -275,6 +277,29 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({
                   ))}
                 </div>
               </div>
+              
+              {tempConfig.provider === 'gemini' && (
+                <div className="space-y-2 animate-fadeIn p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">
+                    <div className="flex items-center gap-3">
+                        <input 
+                            type="checkbox" 
+                            id="webSearch"
+                            checked={!!tempConfig.enableWebSearch}
+                            onChange={(e) => setTempConfig({...tempConfig, enableWebSearch: e.target.checked})}
+                            className="w-4 h-4 text-cyan-600 rounded border-gray-300 focus:ring-cyan-500 cursor-pointer"
+                        />
+                        <label htmlFor="webSearch" className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2 cursor-pointer">
+                           <Globe size={16} className="text-blue-500" />
+                           {t.enableWebSearch || "Enable Google Search"}
+                        </label>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 ml-7">
+                       Uses Google Search to ground answers. <br/>
+                       <span className="text-amber-500 font-bold">Note:</span> Disables file editing tools when active.
+                    </p>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
                   {t.modelName}

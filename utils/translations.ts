@@ -62,7 +62,8 @@ export const translations = {
     analyzingQuiz: "AI is analyzing quiz content...",
     prompts: "Custom Prompts",
     polishPrompt: "Polish Prompt",
-    expandPrompt: "Expand Prompt"
+    expandPrompt: "Expand Prompt",
+    enableWebSearch: "Enable Google Search Grounding"
   },
   zh: {
     explorer: "资源管理器",
@@ -125,8 +126,9 @@ export const translations = {
     analyzingQuiz: "AI正在分析试卷内容...",
     prompts: "自定义提示词",
     polishPrompt: "润色提示词",
-    expandPrompt: "扩写提示词"
+    expandPrompt: "扩写提示词",
+    enableWebSearch: "启用 Google 搜索 (Grounding)"
   }
 };
 
-export type Language = 'en' | 'zh';
+export type Language = keyof typeof translations;

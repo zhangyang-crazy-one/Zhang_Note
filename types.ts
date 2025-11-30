@@ -71,6 +71,7 @@ export interface AIConfig {
   apiKey?: string; 
   temperature: number;
   language: 'en' | 'zh'; // Added language support
+  enableWebSearch?: boolean; // Added Web Search support for Gemini
   mcpTools?: string; // JSON string of custom tool definitions
   customPrompts?: {
     polish?: string;

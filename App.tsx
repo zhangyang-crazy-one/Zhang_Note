@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Editor } from './components/Editor';
@@ -33,6 +35,7 @@ const DEFAULT_AI_CONFIG: AIConfig = {
   baseUrl: 'http://localhost:11434',
   temperature: 0.7,
   language: 'en',
+  enableWebSearch: false,
   mcpTools: '[]',
   customPrompts: {
     polish: "You are an expert technical editor. Improve the provided Markdown content for clarity, grammar, and flow. Return only the polished Markdown.",
