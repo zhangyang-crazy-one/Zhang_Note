@@ -1,6 +1,5 @@
 
 
-
 import { GoogleGenAI, FunctionDeclaration, Type } from "@google/genai";
 import { AIConfig, MarkdownFile, GraphData, Quiz, QuizQuestion } from "../types";
 
@@ -326,8 +325,17 @@ export const generateAIResponse = async (
   // RAG: Inject context from files
   let fullPrompt = prompt;
   if (contextFiles.length > 0) {
+    // Dynamic context limit: Gemini supports massive context (1M+ tokens), enabling "all files" cognition.
+    // Default to ~2M chars (approx 500k tokens) for Gemini, safer 30k for others.
+    const charLimit = config.provider === 'gemini' ? 2000000 : 30000;
+    
     const contextStr = contextFiles.map(f => `--- File: ${f.name} ---\n${f.content}`).join('\n\n');
-    const truncatedContext = contextStr.substring(0, 50000); 
+    const truncatedContext = contextStr.substring(0, charLimit); 
+    
+    if (truncatedContext.length < contextStr.length) {
+       console.log(`Context truncated to ${charLimit} characters.`);
+    }
+
     fullPrompt = `Context from user knowledge base:\n${truncatedContext}\n\nUser Query: ${prompt}`;
   }
   
@@ -350,13 +358,20 @@ export const generateAIResponse = async (
       // 2. Delegate to MCP
       return await mcpClient.executeTool(name, args);
   };
+  
+  // IMPORTANT: Conflicting Config Handling
+  // If JSON Mode is enabled, we CANNOT use Function Calling tools in Gemini (API Error 400).
+  // So we disable tools if jsonMode is true.
+  // We only pass the callback if we actually want tools to be registered and usable.
+  const shouldEnableTools = !jsonMode && (!!toolsCallback || (mcpClient.getTools().length > 0));
+  const callbackToPass = shouldEnableTools ? unifiedToolCallback : undefined;
 
   if (config.provider === 'gemini') {
-    return callGemini(fullPrompt, config, finalSystemInstruction, jsonMode, unifiedToolCallback, mcpClient);
+    return callGemini(fullPrompt, config, finalSystemInstruction, jsonMode, callbackToPass, mcpClient);
   } else if (config.provider === 'ollama') {
-    return callOllama(fullPrompt, config, finalSystemInstruction, jsonMode, unifiedToolCallback, mcpClient);
+    return callOllama(fullPrompt, config, finalSystemInstruction, jsonMode, callbackToPass, mcpClient);
   } else if (config.provider === 'openai') {
-    return callOpenAICompatible(fullPrompt, config, finalSystemInstruction, jsonMode, unifiedToolCallback, mcpClient);
+    return callOpenAICompatible(fullPrompt, config, finalSystemInstruction, jsonMode, callbackToPass, mcpClient);
   }
   throw new Error(`Unsupported provider: ${config.provider}`);
 };
@@ -380,15 +395,15 @@ const callGemini = async (
 
     if (jsonMode) {
       generateConfig.responseMimeType = 'application/json';
+      // When responseMimeType is application/json, tools must NOT be set to avoid INVALID_ARGUMENT error
     }
 
     // Handle Web Search (Gemini only)
     if (config.enableWebSearch && !jsonMode) {
        generateConfig.tools = [{ googleSearch: {} }];
     } 
-    // Only add Function Calling tools if Web Search is NOT active
-    // The prompt explicitly states: "Only tools: googleSearch is permitted. Do not use it with other tools."
-    else if (toolsCallback) {
+    // Only add Function Calling tools if Web Search is NOT active AND toolsCallback is present
+    else if (toolsCallback && !jsonMode) {
         // Base File Tools
         const baseTools: FunctionDeclaration[] = [createFileParams, updateFileParams, deleteFileParams];
         
@@ -412,10 +427,14 @@ const callGemini = async (
     if (config.enableWebSearch && response.candidates?.[0]?.groundingMetadata?.groundingChunks) {
       const chunks = response.candidates[0].groundingMetadata.groundingChunks;
       const links: string[] = [];
+      const visitedUrls = new Set<string>();
       
       chunks.forEach((chunk: any) => {
         if (chunk.web && chunk.web.uri && chunk.web.title) {
-          links.push(`- [${chunk.web.title}](${chunk.web.uri})`);
+          if (!visitedUrls.has(chunk.web.uri)) {
+             links.push(`- [${chunk.web.title}](${chunk.web.uri})`);
+             visitedUrls.add(chunk.web.uri);
+          }
         }
       });
 
@@ -424,8 +443,8 @@ const callGemini = async (
       }
     }
 
-    // Handle Function Calls (only if not searching)
-    if (response.functionCalls && toolsCallback && !config.enableWebSearch) {
+    // Handle Function Calls (only if not searching and tools are enabled)
+    if (response.functionCalls && toolsCallback && !config.enableWebSearch && !jsonMode) {
       const calls = response.functionCalls;
       let toolOutputs: string[] = [];
       
@@ -471,7 +490,7 @@ const callOllama = async (
   
     // Define tools
     let tools = undefined;
-    if (toolsCallback) {
+    if (toolsCallback && !jsonMode) {
         const dynamicTools = mcpClient ? mcpClient.getTools() : [];
         // Map dynamic tools back to OpenAI format for Ollama
         const mappedDynamic = dynamicTools.map(t => ({
@@ -546,7 +565,7 @@ const callOpenAICompatible = async (
     messages.push({ role: 'user', content: prompt });
     
     let tools = undefined;
-    if (toolsCallback) {
+    if (toolsCallback && !jsonMode) {
         const dynamicTools = mcpClient ? mcpClient.getTools() : [];
         const mappedDynamic = dynamicTools.map(t => ({
              type: 'function',
@@ -629,11 +648,15 @@ export const expandContent = async (content: string, config: AIConfig): Promise<
 
 export const generateKnowledgeGraph = async (files: MarkdownFile[], config: AIConfig): Promise<GraphData> => {
   const combinedContent = files.map(f => `<<< FILE_START: ${f.name} >>>\n${f.content}\n<<< FILE_END >>>`).join('\n\n');
+  
+  // Use huge context for Gemini to allow full graph generation
+  const limit = config.provider === 'gemini' ? 2000000 : 15000;
+  
   const prompt = `Task: Generate a comprehensive Knowledge Graph from the provided notes.
   Goal: Identify granular concepts (entities) and their inter-relationships across the entire knowledge base.
   Output Format: STRICT JSON ONLY.
   Structure: { "nodes": [{"id", "label", "val", "group"}], "links": [{"source", "target", "relationship"}] }
-  Content to Analyze: ${combinedContent.substring(0, 15000)}`; 
+  Content to Analyze: ${combinedContent.substring(0, limit)}`; 
   
   const systemPrompt = "You are an expert Knowledge Graph Architect. Output valid JSON only.";
   
@@ -651,12 +674,19 @@ export const generateKnowledgeGraph = async (files: MarkdownFile[], config: AICo
 
 export const synthesizeKnowledgeBase = async (files: MarkdownFile[], config: AIConfig): Promise<string> => {
   const combinedContent = files.map(f => `--- File: ${f.name} ---\n${f.content}`).join('\n\n');
-  const prompt = `Read the notes. Organize info. Synthesize key findings. Produce a Master Summary in Markdown.\nNotes:\n${combinedContent.substring(0, 30000)}`;
+  
+  // Use huge context for Gemini
+  const limit = config.provider === 'gemini' ? 2000000 : 30000;
+  
+  const prompt = `Read the notes. Organize info. Synthesize key findings. Produce a Master Summary in Markdown.\nNotes:\n${combinedContent.substring(0, limit)}`;
   return generateAIResponse(prompt, config, "You are a Knowledge Manager.");
 };
 
 export const generateMindMap = async (content: string, config: AIConfig): Promise<string> => {
-  const prompt = `Create a hierarchical Mermaid.js MindMap syntax. Start with 'mindmap'.\nContent:\n${content.substring(0, 15000)}`;
+  // Use huge context for Gemini
+  const limit = config.provider === 'gemini' ? 2000000 : 15000;
+  
+  const prompt = `Create a hierarchical Mermaid.js MindMap syntax. Start with 'mindmap'.\nContent:\n${content.substring(0, limit)}`;
   const result = await generateAIResponse(prompt, config, "You are a Visualization Expert. Output strictly valid Mermaid mindmap syntax.");
   let clean = cleanCodeBlock(result);
   if (clean.toLowerCase().startsWith('mermaid')) clean = clean.split('\n').slice(1).join('\n').trim();
@@ -698,12 +728,48 @@ const generateQuestionsFromChunks = async (content: string, config: AIConfig): P
 };
 
 export const extractQuizFromRawContent = async (content: string, config: AIConfig): Promise<Quiz> => {
-   const matchCount = (content.match(/(?:^|\n)\s*(?:\d+|Q\d+)[.)]/g) || []).length;
-   if (matchCount >= 5) {
-       const prompt = `Extract all questions from the text below as JSON.\nContent:\n${content.substring(0, 500000)}`;
-       const jsonStr = await generateAIResponse(prompt, config, "Extract every question verbatim. Return JSON.", true);
-       return JSON.parse(extractJson(jsonStr)) as Quiz;
+   // Enhanced Regex to detect English (Q1, Question 1) and Chinese (问题1, 第1题) and Markdown Headers (# Question)
+   // Matches: "Q1.", "Q1:", "1.", "1)", "## Question 1", "### 问题1", "第1题", etc.
+   const questionPattern = /(?:^|\n)\s*(?:#{1,6}\s*)?(?:Q\s*\d+|Question\s*\d+|问题\s*\d+|第\s*\d+\s*[题问])[:.．\s]/i;
+   
+   const matchCount = (content.match(new RegExp(questionPattern, 'g')) || []).length;
+   const isStandardList = (content.match(/(?:^|\n)\s*\d+[.．]\s+/g) || []).length > 2; // Matches "1. ", "2. " lists
+   
+   // If we detect even ONE strong question marker, or a few numbered list items that likely imply a quiz
+   if (matchCount >= 1 || isStandardList) {
+       // Gemini can handle huge content
+       const limit = config.provider === 'gemini' ? 2000000 : 500000;
+       
+       const prompt = `Task: Extract ALL questions from the provided text verbatim into a JSON format.
+       
+       Rules:
+       1. Preserve the exact text of questions and options.
+       2. If options are present (A, B, C, D), extract them into the "options" array.
+       3. If a correct answer is marked or implied, include it in "correctAnswer".
+       4. Return a valid JSON Object with a "questions" array.
+       
+       Text Content:
+       ${content.substring(0, limit)}`;
+       
+       const jsonStr = await generateAIResponse(prompt, config, "You are a Data Extractor. Extract questions exactly as they appear. Return JSON.", true);
+       const result = JSON.parse(extractJson(jsonStr));
+       
+       // Handle cases where AI returns array directly vs object wrapper
+       const questions = Array.isArray(result) ? result : (result.questions || []);
+       
+       return { 
+           id: `quiz-extracted-${Date.now()}`, 
+           title: "Extracted Quiz", 
+           description: "Extracted from current file.", 
+           questions: questions.map((q: any, i: number) => ({
+               ...q, 
+               id: q.id || `ext-${i}`,
+               type: q.options && q.options.length > 0 ? 'single' : 'text'
+           })), 
+           isGraded: false 
+       };
    } else {
+       // Fallback: Generate NEW questions from the content notes
        const questions = await generateQuestionsFromChunks(content, config);
        if (questions.length === 0) throw new Error("No questions generated.");
        return { id: `quiz-gen-${Date.now()}`, title: "Generated Quiz", description: "Generated from notes.", questions, isGraded: false };
@@ -711,18 +777,17 @@ export const extractQuizFromRawContent = async (content: string, config: AIConfi
 };
 
 export const generateQuiz = async (content: string, config: AIConfig): Promise<Quiz> => {
-  const questions = await generateQuestionsFromChunks(content, config);
-  if (questions.length === 0) throw new Error("No questions generated.");
-  return { id: `quiz-generated-${Date.now()}`, title: "Knowledge Check", description: "From notes.", questions, isGraded: false };
+  // Smart Switch: If content already looks like a quiz, extract it instead of generating new questions about it
+  return extractQuizFromRawContent(content, config);
 };
 
 export const gradeQuizQuestion = async (question: string, userAnswer: string, context: string, config: AIConfig): Promise<{isCorrect: boolean, explanation: string}> => {
-  const prompt = `Grade User Answer.\nQuestion: ${question}\nUser: ${userAnswer}\nContext: ${context.substring(0, 2000)}\nReturn JSON {isCorrect, explanation}`;
+  const prompt = `Grade User Answer.\nQuestion: ${question}\nUser: ${userAnswer}\nContext: ${context.substring(0, 50000)}\nReturn JSON {isCorrect, explanation}`;
   const jsonStr = await generateAIResponse(prompt, config, "Strict Teacher. Valid JSON.", true);
   return JSON.parse(extractJson(jsonStr));
 };
 
 export const generateQuizExplanation = async (question: string, correctAnswer: string, userAnswer: string, context: string, config: AIConfig): Promise<string> => {
-  const prompt = `Explain answer.\nQuestion: ${question}\nCorrect: ${correctAnswer}\nUser: ${userAnswer}\nContext: ${context.substring(0, 10000)}`;
+  const prompt = `Explain answer.\nQuestion: ${question}\nCorrect: ${correctAnswer}\nUser: ${userAnswer}\nContext: ${context.substring(0, 50000)}`;
   return generateAIResponse(prompt, config, "Helpful Tutor.");
 };

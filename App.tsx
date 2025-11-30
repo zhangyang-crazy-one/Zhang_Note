@@ -452,6 +452,24 @@ const App: React.FC = () => {
     }
   };
 
+  const handleExport = () => {
+    if (!activeFile) return;
+    try {
+      const blob = new Blob([activeFile.content], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = activeFile.name.endsWith('.md') ? activeFile.name : `${activeFile.name}.md`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showToast(`${t.download} Success`);
+    } catch (e) {
+      showToast("Export failed", true);
+    }
+  };
+
   const handleGenerateMindMap = async () => {
     if (!activeFile || !activeFile.content.trim()) return;
     setAiState({ isThinking: true, message: "Dreaming up Mind Map...", error: null });
@@ -584,7 +602,7 @@ const App: React.FC = () => {
           viewMode={viewMode} 
           setViewMode={setViewMode} 
           onClear={() => updateActiveFile('')}
-          onExport={() => {/* Existing export logic */}}
+          onExport={handleExport}
           onAIPolish={async () => {
              try {
                 saveSnapshot(); // Save current state before AI polish
