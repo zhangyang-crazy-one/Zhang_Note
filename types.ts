@@ -7,6 +7,7 @@ export interface MarkdownFile {
   lastModified: number;
   handle?: FileSystemFileHandle; // For local file persistence
   isLocal?: boolean;
+  path?: string; // Relative path for folder imports (e.g. "docs/v1/intro.md")
 }
 
 export enum ViewMode {

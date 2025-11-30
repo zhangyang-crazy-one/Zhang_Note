@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Editor } from './components/Editor';
@@ -13,7 +11,7 @@ import { MindMap } from './components/MindMap';
 import { ViewMode, AIState, MarkdownFile, AIConfig, ChatMessage, GraphData, AppTheme, Quiz } from './types';
 import { polishContent, expandContent, generateAIResponse, generateKnowledgeGraph, synthesizeKnowledgeBase, generateQuiz, generateMindMap, extractQuizFromRawContent } from './services/aiService';
 import { applyTheme, getAllThemes, getSavedThemeId, saveCustomTheme, deleteCustomTheme, DEFAULT_THEMES } from './services/themeService';
-import { readDirectory, saveFileToDisk, processPdfFile, extractTextFromFile } from './services/fileService';
+import { readDirectory, saveFileToDisk, processPdfFile, extractTextFromFile, parseCsvToQuiz, isExtensionSupported } from './services/fileService';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 import { translations, Language } from './utils/translations';
 
@@ -25,7 +23,8 @@ const DEFAULT_FILE: MarkdownFile = {
   id: 'default-1',
   name: 'Welcome',
   content: DEFAULT_CONTENT,
-  lastModified: Date.now()
+  lastModified: Date.now(),
+  path: 'Welcome.md'
 };
 
 const DEFAULT_AI_CONFIG: AIConfig = {
@@ -137,16 +136,34 @@ const App: React.FC = () => {
     localStorage.setItem('neon-ai-config', JSON.stringify(aiConfig));
   }, [aiConfig]);
 
+  // Auto-save logic: LocalStorage + Disk for Active File
   useEffect(() => {
-    const saveToStorage = () => {
+    const autoSave = async () => {
+      // 1. Save to LocalStorage (Backup)
+      // We strip the handle because it is not serializable
       const filesToSave = filesRef.current.map(f => ({
         ...f,
         handle: undefined
       }));
       localStorage.setItem('neon-files', JSON.stringify(filesToSave));
       localStorage.setItem('neon-active-id', activeFileIdRef.current);
+
+      // 2. Save Active File to Disk (if local and has handle)
+      // We only save the active file to avoid performance issues with iterating thousands of files
+      const activeId = activeFileIdRef.current;
+      const currentActive = filesRef.current.find(f => f.id === activeId);
+
+      if (currentActive && currentActive.isLocal && currentActive.handle) {
+         try {
+           await saveFileToDisk(currentActive);
+           console.log(`[AutoSave] Saved ${currentActive.name} to disk.`);
+         } catch (err) {
+           console.warn(`[AutoSave] Failed to save ${currentActive.name} to disk`, err);
+         }
+      }
     };
-    const intervalId = setInterval(saveToStorage, 30000);
+
+    const intervalId = setInterval(autoSave, 30000);
     return () => clearInterval(intervalId);
   }, []);
 
@@ -157,7 +174,8 @@ const App: React.FC = () => {
       id: generateId(),
       name: `Untitled-${files.length + 1}`,
       content: '',
-      lastModified: Date.now()
+      lastModified: Date.now(),
+      path: `Untitled-${files.length + 1}.md`
     };
     setFiles([...files, newFile]);
     setActiveFileId(newFile.id);
@@ -175,16 +193,43 @@ const App: React.FC = () => {
       f.id === activeFileId ? { ...f, content, lastModified: Date.now() } : f
     );
     setFiles(updated);
-    
-    // Auto-save to disk if it's a local file
-    const current = updated.find(f => f.id === activeFileId);
-    if (current?.handle && current.isLocal) {
-      saveFileToDisk(current).catch(err => console.error("Failed to save to disk", err));
-    }
+    // Note: We removed the immediate saveFileToDisk call here to improve performance.
+    // The auto-save interval above handles disk writes every 30s.
   };
 
   const renameActiveFile = (newName: string) => {
-    setFiles(files.map(f => f.id === activeFileId ? { ...f, name: newName } : f));
+    setFiles(prevFiles => prevFiles.map(f => {
+      if (f.id === activeFileId) {
+         // Logic to preserve extension and update path correctly
+         const oldPath = f.path || f.name;
+         // Split path by slash
+         const pathParts = oldPath.replace(/\\/g, '/').split('/');
+         const oldNameWithExt = pathParts[pathParts.length - 1];
+         
+         // Extract extension from old name
+         const lastDotIndex = oldNameWithExt.lastIndexOf('.');
+         const ext = lastDotIndex !== -1 ? oldNameWithExt.substring(lastDotIndex) : '';
+         
+         // If newName doesn't have an extension, append the original one
+         let finalName = newName;
+         if (ext && !finalName.toLowerCase().endsWith(ext.toLowerCase())) {
+             // Basic check: if user didn't type any dot, append ext.
+             if (finalName.indexOf('.') === -1) {
+                 finalName += ext;
+             }
+         }
+         
+         // Update the filename in the path array
+         pathParts[pathParts.length - 1] = finalName;
+         const newPath = pathParts.join('/');
+         
+         // Update display name (remove extension for UI if consistent with file service)
+         const nameForDisplay = finalName.includes('.') ? finalName.substring(0, finalName.lastIndexOf('.')) : finalName;
+         
+         return { ...f, name: nameForDisplay, path: newPath };
+      }
+      return f;
+    }));
   };
 
   // --- New Features ---
@@ -206,26 +251,38 @@ const App: React.FC = () => {
 
   const handleImportFolderFiles = async (fileList: FileList) => {
     const newFiles: MarkdownFile[] = [];
-    for (let i = 0; i < fileList.length; i++) {
-      const file = fileList[i];
-      if (file.name.endsWith('.md')) {
-         const content = await file.text();
-         newFiles.push({
-           id: generateId() + '-' + i,
-           name: file.name.replace('.md', ''),
-           content: content,
-           lastModified: file.lastModified,
-           isLocal: false
-         });
-      }
-    }
+    setAiState({ isThinking: true, message: t.processingFile, error: null });
     
-    if (newFiles.length > 0) {
-      setFiles(newFiles);
-      setActiveFileId(newFiles[0].id);
-      showToast(`${t.filesLoaded}: ${newFiles.length}`);
-    } else {
-      showToast(t.noFilesFound);
+    try {
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        if (isExtensionSupported(file.name)) {
+           const content = await extractTextFromFile(file);
+           // Ensure webkitRelativePath is used for nesting
+           const path = file.webkitRelativePath || file.name;
+           
+           newFiles.push({
+             id: generateId() + '-' + i,
+             name: file.name.replace(/\.[^/.]+$/, ""),
+             content: content,
+             lastModified: file.lastModified,
+             isLocal: false,
+             path: path
+           });
+        }
+      }
+      
+      if (newFiles.length > 0) {
+        setFiles(newFiles);
+        setActiveFileId(newFiles[0].id);
+        showToast(`${t.filesLoaded}: ${newFiles.length}`);
+      } else {
+        showToast(t.noFilesFound);
+      }
+    } catch (e: any) {
+       showToast(e.message, true);
+    } finally {
+       setAiState(prev => ({ ...prev, isThinking: false, message: null }));
     }
   };
 
@@ -237,7 +294,8 @@ const App: React.FC = () => {
         id: generateId(),
         name: file.name.replace('.pdf', ''),
         content: mdContent,
-        lastModified: Date.now()
+        lastModified: Date.now(),
+        path: file.name.replace('.pdf', '.md')
       };
       setFiles(prev => [...prev, newFile]);
       setActiveFileId(newFile.id);
@@ -252,6 +310,19 @@ const App: React.FC = () => {
   const handleImportQuiz = async (file: File) => {
     setAiState({ isThinking: true, message: t.processingFile, error: null });
     try {
+      // 0. Try CSV Parser first if CSV
+      if (file.name.toLowerCase().endsWith('.csv')) {
+         const csvQuiz = await parseCsvToQuiz(file);
+         if (csvQuiz) {
+             setCurrentQuiz(csvQuiz);
+             setViewMode(ViewMode.Quiz);
+             showToast(t.importSuccess);
+             setAiState(prev => ({ ...prev, isThinking: false, message: null }));
+             return;
+         }
+         // If CSV parsing returned null (non-standard), fall through to AI
+      }
+
       // 1. Extract Text
       const textContent = await extractTextFromFile(file, aiConfig.apiKey);
       
@@ -307,7 +378,8 @@ const App: React.FC = () => {
         id: generateId(),
         name: args.filename.replace('.md', ''),
         content: args.content,
-        lastModified: Date.now()
+        lastModified: Date.now(),
+        path: args.filename
       };
       setFiles(prev => [...prev, newFile]);
       return { success: true, message: `Created file ${args.filename}` };
@@ -425,7 +497,7 @@ const App: React.FC = () => {
              try {
                 setAiState({ isThinking: true, message: "Synthesizing Knowledge Base...", error: null });
                 const summary = await synthesizeKnowledgeBase(files, aiConfig);
-                const newFile: MarkdownFile = { id: generateId(), name: 'Master-Summary', content: summary, lastModified: Date.now() };
+                const newFile: MarkdownFile = { id: generateId(), name: 'Master-Summary', content: summary, lastModified: Date.now(), path: 'Master-Summary.md' };
                 setFiles([...files, newFile]);
                 setActiveFileId(newFile.id);
                 setViewMode(ViewMode.Preview);

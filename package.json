@@ -23,7 +23,8 @@
     "d3": "^7.9.0",
     "mermaid": "^11.12.1",
     "pdfjs-dist": "3.11.174",
-    "mammoth": "1.8.0"
+    "mammoth": "1.8.0",
+    "papaparse": "5.4.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

@@ -400,24 +400,29 @@ export const extractQuizFromRawContent = async (content: string, config: AIConfi
 
    const prompt = `Analyze the document content below to create a Quiz JSON.
    
-   MODES:
-   1. **Extraction Mode**: If the content IS ALREADY a test paper (contains questions like "1.", "Q1", multiple choice options), you MUST EXTRACT every single question exactly as written. Do not summarize or skip any. Preserve options.
-   2. **Generation Mode**: If the content is informational text (notes, articles), GENERATE high-quality questions based on it.
+   CRITICAL MODE SELECTION:
+   1. **STRICT EXTRACTION MODE** (Priority): If the content looks like a test paper (contains numbered questions "1.", "2.", "Q1", or "Question 1"), you MUST extract EVERY SINGLE QUESTION exactly as written.
+      - **DO NOT SKIP ANY QUESTION**. If the document has 50 questions, your JSON array must have 50 items.
+      - **DO NOT SUMMARIZE**. Use the exact text.
+      - Extract all options (A, B, C, D).
+      - If an answer key is present at the end, map it to 'correctAnswer'.
+   
+   2. **GENERATION MODE**: Only if the content is pure text (notes, articles) with no existing questions, then generate high-quality questions.
    
    OUTPUT FORMAT:
    Return strictly valid JSON matching this schema:
    {
     "id": "quiz-extracted-${Date.now()}",
     "title": "Extracted Exam",
-    "description": "Quiz extracted or generated from uploaded document.",
+    "description": "Quiz extracted from uploaded document.",
     "questions": [
       {
         "id": "q1",
-        "type": "single", // Use 'single', 'multiple', or 'text'
-        "question": "The question text?",
-        "options": ["A", "B", "C", "D"], // Required for single/multiple
-        "correctAnswer": "A", // Or ["A", "B"] for multiple. If unknown, leave empty string or infer best answer.
-        "explanation": "Detailed explanation of why this is the correct answer."
+        "type": "single", // 'single', 'multiple', or 'text'
+        "question": "Exact question text?",
+        "options": ["A. ...", "B. ..."], 
+        "correctAnswer": "A", 
+        "explanation": "Extracted or generated explanation."
       }
     ],
     "isGraded": false
@@ -429,7 +434,7 @@ export const extractQuizFromRawContent = async (content: string, config: AIConfi
    ${content.substring(0, 45000)}
    `;
 
-   const systemPrompt = "You are an Exam Parser AI. Your priority is to strictly extract existing questions if they exist. Otherwise, generate educational questions. Output valid JSON only.";
+   const systemPrompt = "You are an Strict Exam Parser AI. Your highest priority is to count the input questions and ensure the output JSON contains exactly that many questions. Do not drop questions.";
 
    try {
     const jsonStr = await generateAIResponse(prompt, config, systemPrompt, true);
