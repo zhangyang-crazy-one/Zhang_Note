@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Editor } from './components/Editor';
@@ -10,7 +11,7 @@ import { QuizPanel } from './components/QuizPanel';
 import { MindMap } from './components/MindMap';
 import { ViewMode, AIState, MarkdownFile, AIConfig, ChatMessage, GraphData, AppTheme, Quiz } from './types';
 import { polishContent, expandContent, generateAIResponse, generateKnowledgeGraph, synthesizeKnowledgeBase, generateQuiz, generateMindMap, extractQuizFromRawContent } from './services/aiService';
-import { applyTheme, getAllThemes, getSavedThemeId, saveCustomTheme, deleteCustomTheme, DEFAULT_THEMES } from './services/themeService';
+import { applyTheme, getAllThemes, getSavedThemeId, saveCustomTheme, deleteCustomTheme, DEFAULT_THEMES, getLastUsedThemeIdForMode } from './services/themeService';
 import { readDirectory, saveFileToDisk, processPdfFile, extractTextFromFile, parseCsvToQuiz, isExtensionSupported } from './services/fileService';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 import { translations, Language } from './utils/translations';
@@ -32,7 +33,11 @@ const DEFAULT_AI_CONFIG: AIConfig = {
   model: 'gemini-2.5-flash',
   baseUrl: 'http://localhost:11434',
   temperature: 0.7,
-  language: 'en'
+  language: 'en',
+  customPrompts: {
+    polish: "You are an expert technical editor. Improve the provided Markdown content for clarity, grammar, and flow. Return only the polished Markdown.",
+    expand: "You are a creative technical writer. Expand on the provided Markdown content, adding relevant details, examples, or explanations. Return only the expanded Markdown."
+  }
 };
 
 const App: React.FC = () => {
@@ -62,9 +67,20 @@ const App: React.FC = () => {
   const toggleTheme = () => {
     const currentTheme = themes.find(t => t.id === activeThemeId);
     if (!currentTheme) return;
+    
     const targetType = currentTheme.type === 'dark' ? 'light' : 'dark';
-    const targetTheme = themes.find(t => t.type === targetType);
-    if (targetTheme) handleThemeChange(targetTheme.id);
+    
+    // Smart Toggle: Try to restore the user's last preferred theme for this mode
+    const lastUsedId = getLastUsedThemeIdForMode(targetType);
+    const lastUsedTheme = lastUsedId ? themes.find(t => t.id === lastUsedId) : undefined;
+    
+    if (lastUsedTheme) {
+        handleThemeChange(lastUsedTheme.id);
+    } else {
+        // Fallback: Find first available theme of target type
+        const targetTheme = themes.find(t => t.type === targetType);
+        if (targetTheme) handleThemeChange(targetTheme.id);
+    }
   };
 
   // --- File System State ---
@@ -90,7 +106,16 @@ const App: React.FC = () => {
   const [aiConfig, setAiConfig] = useState<AIConfig>(() => {
     try {
       const saved = localStorage.getItem('neon-ai-config');
-      return saved ? { ...DEFAULT_AI_CONFIG, ...JSON.parse(saved) } : DEFAULT_AI_CONFIG;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Merge with default to ensure new fields like customPrompts exist if loading old config
+        return { 
+          ...DEFAULT_AI_CONFIG, 
+          ...parsed,
+          customPrompts: { ...DEFAULT_AI_CONFIG.customPrompts, ...parsed.customPrompts }
+        };
+      }
+      return DEFAULT_AI_CONFIG;
     } catch (e) { return DEFAULT_AI_CONFIG; }
   });
 

@@ -71,6 +71,10 @@ export interface AIConfig {
   apiKey?: string; 
   temperature: number;
   language: 'en' | 'zh'; // Added language support
+  customPrompts?: {
+    polish?: string;
+    expand?: string;
+  };
 }
 
 export interface ChatMessage {

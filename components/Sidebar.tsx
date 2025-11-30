@@ -1,7 +1,10 @@
 
-
 import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
-import { FileText, Plus, Trash2, FolderOpen, Search, X, FolderInput, FileType, List, AlignLeft, ChevronRight, GraduationCap, ChevronDown, Folder, FileCode, FileImage } from 'lucide-react';
+import { 
+  FileText, Plus, Trash2, FolderOpen, Search, X, FolderInput, 
+  FileType, List, AlignLeft, ChevronRight, GraduationCap, 
+  Folder, FileCode, FileImage, FileJson, FileSpreadsheet, File as FileIcon 
+} from 'lucide-react';
 import { MarkdownFile } from '../types';
 import { translations, Language } from '../utils/translations';
 
@@ -46,10 +49,29 @@ interface FlatNode extends FileTreeNode {
 
 const getIconForFile = (name: string) => {
     const lower = name.toLowerCase();
+    
+    // Markdown
     if (lower.endsWith('.md')) return <FileText size={14} className="text-cyan-500" />;
-    if (lower.endsWith('.js') || lower.endsWith('.ts') || lower.endsWith('.tsx')) return <FileCode size={14} className="text-yellow-500" />;
-    if (lower.endsWith('.png') || lower.endsWith('.jpg')) return <FileImage size={14} className="text-purple-500" />;
-    return <FileText size={14} className="text-slate-500" />;
+    if (lower.endsWith('.txt')) return <FileText size={14} className="text-slate-500" />;
+    
+    // Code
+    if (lower.endsWith('.js') || lower.endsWith('.jsx')) return <FileCode size={14} className="text-yellow-500" />;
+    if (lower.endsWith('.ts') || lower.endsWith('.tsx')) return <FileCode size={14} className="text-blue-500" />;
+    if (lower.endsWith('.css') || lower.endsWith('.scss')) return <FileCode size={14} className="text-pink-500" />;
+    if (lower.endsWith('.html')) return <FileCode size={14} className="text-orange-500" />;
+    if (lower.endsWith('.json')) return <FileJson size={14} className="text-green-500" />;
+    
+    // Data & Docs
+    if (lower.endsWith('.csv')) return <FileSpreadsheet size={14} className="text-emerald-500" />;
+    if (lower.endsWith('.pdf')) return <FileType size={14} className="text-red-500" />;
+    
+    // Images
+    if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'].some(ext => lower.endsWith(ext))) {
+        return <FileImage size={14} className="text-purple-500" />;
+    }
+
+    // Default
+    return <FileIcon size={14} className="text-slate-400" />;
 };
 
 // Memoized Row Component
@@ -139,25 +161,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const quizInputRef = useRef<HTMLInputElement>(null);
   const t = translations[language];
 
+  // Sync ref in render to ensure it's up to date for useMemo calculation
+  const filesRef = useRef(files);
+  filesRef.current = files;
+
   // 1. Structure Hash: Create a stable dependency key for tree building
-  // This prevents tree rebuilds when content changes but structure doesn't.
   const filesStructureHash = useMemo(() => {
      return files.map(f => `${f.id}|${f.path || f.name}`).join(';');
   }, [files]);
   
-  // Capture files in ref to usage in buildTree without triggering re-render on content change
-  const filesRef = useRef(files);
-  useEffect(() => { filesRef.current = files; }, [files]);
-
   // 2. Build Tree Structure (Hierarchical)
   const fileTree = useMemo(() => {
+    // Access files from ref to avoid re-running useMemo on content change (files prop changes ref on every edit)
     const currentFiles = filesRef.current;
     const rootNodes: FileTreeNode[] = [];
     const pathMap = new Map<string, FileTreeNode>();
 
-    // Sort files by path depth to ensure parents are processed before children (mostly)
-    // But we will use robust map lookup anyway.
-    
     currentFiles.forEach(file => {
         const rawPath = file.path || file.name;
         const normalizedPath = rawPath.replace(/\\/g, '/');
@@ -167,10 +186,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         
         parts.forEach((part, index) => {
             const isFile = index === parts.length - 1;
-            const parentPath = currentPath; // Parent is previous iteration's currentPath
+            const parentPath = currentPath; 
             currentPath = currentPath ? `${currentPath}/${part}` : part;
 
-            // If node exists, we just need to verify it's linked, but usually we skip
             if (pathMap.has(currentPath)) {
                 return;
             }
@@ -188,14 +206,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             if (parentPath) {
                 const parent = pathMap.get(parentPath);
+                // Robustness check: Ensure parent exists AND is a folder (has children array)
                 if (parent && parent.children) {
                     parent.children.push(newNode);
                 } else {
-                    // This handles cases where parent might not have been created yet if order is weird?
-                    // With path splitting loop, parent is ALWAYS created in previous iteration.
-                    // But if parent came from a different file processing?
-                    // Map ensures shared reference.
-                    rootNodes.push(newNode); // Fallback (should typically not happen if root is distinct)
+                    // Fallback: If parent is missing or is a file (path collision), push to root to prevent data loss/crash
+                    rootNodes.push(newNode);
                 }
             } else {
                 rootNodes.push(newNode);
@@ -217,7 +233,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
 
     return sortNodes(rootNodes);
-  }, [filesStructureHash]); // Only rebuild if structure changes
+  }, [filesStructureHash]); 
 
   // Auto-expand to active file
   useEffect(() => {
@@ -260,29 +276,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
     } else {
         setOutline([]);
     }
-  }, [activeFileId, files]); // Depend on full files for content outline updates
+  }, [activeFileId, files]);
 
   const toggleFolder = useCallback((path: string) => {
       setExpandedFolders(prev => ({ ...prev, [path]: !prev[path] }));
   }, []);
 
   // 3. Flatten Tree for Rendering
-  // This converts the hierarchical tree into a flat list based on expanded state
-  // O(VisibleNodes) complexity for rendering
   const visibleFlatNodes = useMemo(() => {
       const flatList: FlatNode[] = [];
       
       const traverse = (nodes: FileTreeNode[], level: number) => {
           for (const node of nodes) {
-              // Filter logic
-              if (searchQuery) {
-                  // If searching, show all matches. Simple flattening.
-                  // Note: This simple search filter hides non-matching folders unless they contain matches.
-                  // For strict correctness with search, we'd filter the tree first.
-                  // Here we use the pre-filtered approach:
-                  // For now, let's just flatten everything if search is active or respect search logic
-              }
-              
               const isFolder = node.type === 'folder';
               const isExpanded = expandedFolders[node.path];
               
@@ -303,7 +308,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }
       };
       
-      // Filter Logic applied to Tree before flattening
+      // Filter Logic
       const getFilteredNodes = (nodes: FileTreeNode[]): FileTreeNode[] => {
           if (!searchQuery) return nodes;
           const result: FileTreeNode[] = [];
@@ -323,7 +328,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       };
 
       const nodesToRender = searchQuery ? getFilteredNodes(fileTree) : fileTree;
-      traverse(nodesToRender, 0);
+      if (nodesToRender) {
+          traverse(nodesToRender, 0);
+      }
       return flatList;
   }, [fileTree, expandedFolders, searchQuery]);
 

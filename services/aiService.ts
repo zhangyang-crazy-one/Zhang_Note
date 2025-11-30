@@ -1,5 +1,4 @@
 
-
 import { GoogleGenAI, FunctionDeclaration, Type } from "@google/genai";
 import { AIConfig, MarkdownFile, GraphData, Quiz } from "../types";
 
@@ -7,10 +6,9 @@ import { AIConfig, MarkdownFile, GraphData, Quiz } from "../types";
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 
 // Initialize Gemini Client
-// We create a new instance per request to ensure fresh config/keys
 const getClient = (apiKey?: string) => new GoogleGenAI({ apiKey: apiKey || process.env.API_KEY });
 
-// --- Function Declarations for AI File Manipulation ---
+// --- Function Declarations for Gemini (Google SDK format) ---
 
 const createFileParams = {
   name: 'create_file',
@@ -46,6 +44,55 @@ const deleteFileParams = {
     required: ['filename']
   }
 };
+
+// --- Function Declarations for OpenAI / Ollama (JSON Schema format) ---
+
+const OPENAI_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "create_file",
+      description: "Create a new file with the given name and content. Use this to create documents.",
+      parameters: {
+        type: "object",
+        properties: {
+          filename: { type: "string", "description": "Name of the file (e.g. 'notes.md')" },
+          content: { type: "string", "description": "Markdown content of the file" }
+        },
+        required: ["filename", "content"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_file",
+      description: "Update an existing file. Replaces content or appends based on logic.",
+      parameters: {
+        type: "object",
+        properties: {
+          filename: { type: "string", "description": "Name of the file to update" },
+          content: { type: "string", "description": "New content" }
+        },
+        required: ["filename", "content"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_file",
+      description: "Delete a file by name.",
+      parameters: {
+        type: "object",
+        properties: {
+          filename: { type: "string", "description": "Name of the file to delete" }
+        },
+        required: ["filename"]
+      }
+    }
+  }
+];
 
 // Helper to sanitize code blocks and extract JSON
 const cleanCodeBlock = (text: string): string => {
@@ -94,9 +141,9 @@ export const generateAIResponse = async (
   if (config.provider === 'gemini') {
     return callGemini(fullPrompt, config.model, finalSystemInstruction, jsonMode, toolsCallback, config.apiKey);
   } else if (config.provider === 'ollama') {
-    return callOllama(fullPrompt, config, finalSystemInstruction, jsonMode);
+    return callOllama(fullPrompt, config, finalSystemInstruction, jsonMode, toolsCallback);
   } else if (config.provider === 'openai') {
-    return callOpenAICompatible(fullPrompt, config, finalSystemInstruction, jsonMode);
+    return callOpenAICompatible(fullPrompt, config, finalSystemInstruction, jsonMode, toolsCallback);
   }
   throw new Error(`Unsupported provider: ${config.provider}`);
 };
@@ -178,60 +225,174 @@ const callGemini = async (
   }
 };
 
-const callOllama = async (prompt: string, config: AIConfig, systemInstruction?: string, jsonMode: boolean = false): Promise<string> => {
+const callOllama = async (
+  prompt: string, 
+  config: AIConfig, 
+  systemInstruction?: string, 
+  jsonMode: boolean = false,
+  toolsCallback?: (toolName: string, args: any) => Promise<any>
+): Promise<string> => {
     const baseUrl = config.baseUrl || 'http://localhost:11434';
     const model = config.model || 'llama3';
-    const messages = [];
+    
+    // Prepare initial messages
+    const messages: any[] = [];
     if (systemInstruction) messages.push({ role: 'system', content: systemInstruction });
     messages.push({ role: 'user', content: prompt });
   
+    // Define tools if callback provided
+    const tools = toolsCallback ? OPENAI_TOOLS : undefined;
+
+    let iterations = 0;
+    const MAX_ITERATIONS = 5;
+
     try {
-      const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: model, messages: messages, stream: false, format: jsonMode ? 'json' : undefined,
-          options: { temperature: config.temperature }
-        }),
-      });
-      if (!response.ok) throw new Error(`Ollama Error: ${response.statusText}`);
-      const data = await response.json();
-      return data.message?.content || '';
-    } catch (error) { throw new Error("Failed to communicate with Ollama."); }
+      while (iterations < MAX_ITERATIONS) {
+        const body: any = {
+          model: model,
+          messages: messages,
+          stream: false,
+          format: jsonMode ? 'json' : undefined,
+          options: { temperature: config.temperature },
+        };
+        
+        // Only attach tools if available and provider supports it (recent Ollama)
+        if (tools) {
+            body.tools = tools;
+        }
+
+        const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        
+        if (!response.ok) throw new Error(`Ollama Error: ${response.statusText}`);
+        const data = await response.json();
+        
+        const message = data.message;
+        const toolCalls = message.tool_calls;
+
+        // Add assistant response to history
+        messages.push(message);
+
+        // If tool calls are present, execute them
+        if (toolCalls && toolCalls.length > 0 && toolsCallback) {
+            for (const tool of toolCalls) {
+                const functionName = tool.function.name;
+                const args = tool.function.arguments; // Ollama usually returns object, but sometimes string
+                const parsedArgs = typeof args === 'string' ? JSON.parse(args) : args;
+                
+                const result = await toolsCallback(functionName, parsedArgs);
+                
+                // Add tool result to history
+                messages.push({
+                    role: 'tool',
+                    content: JSON.stringify(result)
+                    // Ollama native API might infer relationship from order, 
+                    // or use 'tool' role. Standardizing on 'tool' role content.
+                });
+            }
+            iterations++;
+        } else {
+            // No tool calls, return final content
+            return message.content || '';
+        }
+      }
+      return messages[messages.length - 1].content || "Max iterations reached.";
+
+    } catch (error) { 
+       console.error(error);
+       throw new Error("Failed to communicate with Ollama."); 
+    }
   };
   
-  const callOpenAICompatible = async (prompt: string, config: AIConfig, systemInstruction?: string, jsonMode: boolean = false): Promise<string> => {
+  const callOpenAICompatible = async (
+    prompt: string, 
+    config: AIConfig, 
+    systemInstruction?: string, 
+    jsonMode: boolean = false,
+    toolsCallback?: (toolName: string, args: any) => Promise<any>
+  ): Promise<string> => {
     const baseUrl = config.baseUrl || 'https://api.openai.com/v1';
     const endpoint = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
-    const messages = [];
+    
+    const messages: any[] = [];
     if (systemInstruction) messages.push({ role: 'system', content: systemInstruction });
     messages.push({ role: 'user', content: prompt });
-  
+    
+    const tools = toolsCallback ? OPENAI_TOOLS : undefined;
+    let iterations = 0;
+    const MAX_ITERATIONS = 5;
+
     try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.apiKey || ''}`
-        },
-        body: JSON.stringify({
-          model: config.model, messages: messages, temperature: config.temperature,
+      while (iterations < MAX_ITERATIONS) {
+        const body: any = {
+          model: config.model,
+          messages: messages,
+          temperature: config.temperature,
           response_format: jsonMode ? { type: "json_object" } : undefined
-        }),
-      });
-      if (!response.ok) throw new Error(`API Error: ${response.statusText}`);
-      const data = await response.json();
-      return data.choices?.[0]?.message?.content || '';
-    } catch (error: any) { throw new Error(`Failed to connect to AI provider: ${error.message}`); }
+        };
+
+        if (tools) {
+           body.tools = tools;
+           body.tool_choice = "auto";
+        }
+
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${config.apiKey || ''}`
+          },
+          body: JSON.stringify(body),
+        });
+
+        if (!response.ok) throw new Error(`API Error: ${response.statusText}`);
+        const data = await response.json();
+        
+        const choice = data.choices?.[0];
+        if (!choice) throw new Error("No choices in response");
+
+        const message = choice.message;
+        messages.push(message); // Add to history
+
+        if (message.tool_calls && message.tool_calls.length > 0 && toolsCallback) {
+            for (const toolCall of message.tool_calls) {
+                const fnName = toolCall.function.name;
+                const argsStr = toolCall.function.arguments;
+                const args = typeof argsStr === 'string' ? JSON.parse(argsStr) : argsStr;
+
+                const result = await toolsCallback(fnName, args);
+
+                messages.push({
+                    role: 'tool',
+                    tool_call_id: toolCall.id,
+                    content: JSON.stringify(result)
+                });
+            }
+            iterations++;
+        } else {
+            return message.content || '';
+        }
+      }
+      return messages[messages.length - 1].content || "Max iterations reached.";
+
+    } catch (error: any) { 
+        console.error(error);
+        throw new Error(`Failed to connect to AI provider: ${error.message}`); 
+    }
   };
 
 export const polishContent = async (content: string, config: AIConfig): Promise<string> => {
-  const systemPrompt = "You are an expert technical editor. Improve the provided Markdown content for clarity, grammar, and flow. Return only the polished Markdown.";
+  const defaultPrompt = "You are an expert technical editor. Improve the provided Markdown content for clarity, grammar, and flow. Return only the polished Markdown.";
+  const systemPrompt = config.customPrompts?.polish || defaultPrompt;
   return generateAIResponse(content, config, systemPrompt);
 };
 
 export const expandContent = async (content: string, config: AIConfig): Promise<string> => {
-  const systemPrompt = "You are a creative technical writer. Expand on the provided Markdown content, adding relevant details, examples, or explanations. Return only the expanded Markdown.";
+  const defaultPrompt = "You are a creative technical writer. Expand on the provided Markdown content, adding relevant details, examples, or explanations. Return only the expanded Markdown.";
+  const systemPrompt = config.customPrompts?.expand || defaultPrompt;
   return generateAIResponse(content, config, systemPrompt);
 };
 

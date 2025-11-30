@@ -117,12 +117,6 @@ export const applyTheme = (theme: AppTheme) => {
   
   // Set Color Variables
   Object.entries(theme.colors).forEach(([key, value]) => {
-    // Tailwind opacity syntax requires just the RGB numbers "r g b" if we want to use /alpha
-    // But our values are hex-like or space separated. 
-    // To support `rgb(var(--var) / alpha)`, the variable must hold "R G B".
-    // We will assume the DEFAULT_THEMES define RGB space-separated strings if they are not already.
-    // If they are hex (which they are currently in comments, but strings are space sep in code), we are good.
-    // Let's ensure the string is clean.
     root.style.setProperty(key, value);
   });
 
@@ -135,10 +129,16 @@ export const applyTheme = (theme: AppTheme) => {
   
   // Save to storage
   localStorage.setItem('neon-active-theme-id', theme.id);
+  // Track preference for this mode (Fix for toggle reset bug)
+  localStorage.setItem(`neon-last-${theme.type}-theme-id`, theme.id);
 };
 
 export const getSavedThemeId = (): string => {
   return localStorage.getItem('neon-active-theme-id') || 'neon-cyber';
+};
+
+export const getLastUsedThemeIdForMode = (type: 'light' | 'dark'): string | null => {
+  return localStorage.getItem(`neon-last-${type}-theme-id`);
 };
 
 export const getAllThemes = (): AppTheme[] => {

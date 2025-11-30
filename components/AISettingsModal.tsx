@@ -1,6 +1,7 @@
 
+
 import React, { useState, useRef } from 'react';
-import { X, Save, Server, Cpu, Key, Globe, Palette, Upload, Trash2, Check, Download, Plus, Languages } from 'lucide-react';
+import { X, Save, Server, Cpu, Key, Globe, Palette, Upload, Trash2, Check, Download, Plus, Languages, MessageSquare } from 'lucide-react';
 import { AIConfig, AppTheme } from '../types';
 import { translations, Language } from '../utils/translations';
 
@@ -17,7 +18,7 @@ interface AISettingsModalProps {
   language?: Language;
 }
 
-type Tab = 'ai' | 'appearance';
+type Tab = 'ai' | 'appearance' | 'prompts';
 
 export const AISettingsModal: React.FC<AISettingsModalProps> = ({
   isOpen,
@@ -96,17 +97,24 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({
         
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-paper-200 dark:border-cyber-700 bg-paper-50 dark:bg-cyber-800/50 flex-shrink-0">
-          <div className="flex gap-4">
+          <div className="flex gap-4 overflow-x-auto no-scrollbar">
              <button
               onClick={() => setActiveTab('ai')}
-              className={`text-sm font-bold flex items-center gap-2 pb-1 border-b-2 transition-colors ${activeTab === 'ai' ? 'text-cyan-600 dark:text-cyan-400 border-cyan-500' : 'text-slate-500 border-transparent hover:text-slate-700 dark:hover:text-slate-300'}`}
+              className={`text-sm font-bold flex items-center gap-2 pb-1 border-b-2 transition-colors whitespace-nowrap ${activeTab === 'ai' ? 'text-cyan-600 dark:text-cyan-400 border-cyan-500' : 'text-slate-500 border-transparent hover:text-slate-700 dark:hover:text-slate-300'}`}
              >
                 <Cpu size={18} />
                 {t.aiConfig}
              </button>
              <button
+              onClick={() => setActiveTab('prompts')}
+              className={`text-sm font-bold flex items-center gap-2 pb-1 border-b-2 transition-colors whitespace-nowrap ${activeTab === 'prompts' ? 'text-cyan-600 dark:text-cyan-400 border-cyan-500' : 'text-slate-500 border-transparent hover:text-slate-700 dark:hover:text-slate-300'}`}
+             >
+                <MessageSquare size={18} />
+                {t.prompts || "Prompts"}
+             </button>
+             <button
               onClick={() => setActiveTab('appearance')}
-              className={`text-sm font-bold flex items-center gap-2 pb-1 border-b-2 transition-colors ${activeTab === 'appearance' ? 'text-violet-600 dark:text-violet-400 border-violet-500' : 'text-slate-500 border-transparent hover:text-slate-700 dark:hover:text-slate-300'}`}
+              className={`text-sm font-bold flex items-center gap-2 pb-1 border-b-2 transition-colors whitespace-nowrap ${activeTab === 'appearance' ? 'text-violet-600 dark:text-violet-400 border-violet-500' : 'text-slate-500 border-transparent hover:text-slate-700 dark:hover:text-slate-300'}`}
              >
                 <Palette size={18} />
                 {t.appearance}
@@ -226,6 +234,47 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({
             </form>
           )}
 
+          {/* Prompts Tab */}
+          {activeTab === 'prompts' && (
+             <div className="space-y-6">
+                <div className="bg-white dark:bg-cyber-800 p-4 rounded-xl border border-paper-200 dark:border-cyber-700 shadow-sm">
+                   <p className="text-sm text-slate-500 dark:text-slate-400">
+                      Customize the system instructions sent to the AI for specific actions.
+                   </p>
+                </div>
+
+                <div className="space-y-3">
+                   <label className="block text-sm font-bold text-slate-700 dark:text-slate-300">
+                      {t.polishPrompt || "Polish Prompt"}
+                   </label>
+                   <textarea
+                      value={tempConfig.customPrompts?.polish || ''}
+                      onChange={(e) => setTempConfig({ 
+                         ...tempConfig, 
+                         customPrompts: { ...tempConfig.customPrompts, polish: e.target.value } 
+                      })}
+                      className="w-full h-32 px-3 py-2 rounded-lg bg-white dark:bg-cyber-800 border border-paper-200 dark:border-cyber-600 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+                      placeholder="Enter system prompt for 'Polish' action..."
+                   />
+                </div>
+
+                <div className="space-y-3">
+                   <label className="block text-sm font-bold text-slate-700 dark:text-slate-300">
+                      {t.expandPrompt || "Expand Prompt"}
+                   </label>
+                   <textarea
+                      value={tempConfig.customPrompts?.expand || ''}
+                      onChange={(e) => setTempConfig({ 
+                         ...tempConfig, 
+                         customPrompts: { ...tempConfig.customPrompts, expand: e.target.value } 
+                      })}
+                      className="w-full h-32 px-3 py-2 rounded-lg bg-white dark:bg-cyber-800 border border-paper-200 dark:border-cyber-600 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+                      placeholder="Enter system prompt for 'Expand' action..."
+                   />
+                </div>
+             </div>
+          )}
+
           {/* Appearance Tab */}
           {activeTab === 'appearance' && (
             <div className="space-y-6">
@@ -302,15 +351,14 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({
         </div>
 
         {/* Footer */}
-        {activeTab === 'ai' && (
+        {activeTab === 'ai' || activeTab === 'prompts' ? (
           <div className="p-4 border-t border-paper-200 dark:border-cyber-700 flex justify-end gap-3 bg-paper-50 dark:bg-cyber-800/50 flex-shrink-0">
              <button onClick={onClose} className="px-4 py-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-paper-200 dark:hover:bg-cyber-700">{t.cancel}</button>
              <button onClick={handleSubmit} className="flex items-center gap-2 px-6 py-2 bg-gradient-to-r from-cyan-500 to-violet-500 text-white rounded-lg shadow-lg hover:shadow-cyan-500/25">
                <Save size={18} /> {t.save}
              </button>
           </div>
-        )}
-        {activeTab === 'appearance' && (
+        ) : (
           <div className="p-4 border-t border-paper-200 dark:border-cyber-700 flex justify-end bg-paper-50 dark:bg-cyber-800/50">
              <button onClick={onClose} className="px-4 py-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-paper-200 dark:hover:bg-cyber-700">{t.close}</button>
           </div>

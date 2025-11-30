@@ -59,7 +59,10 @@ export const translations = {
     darkMode: "Dark Mode",
     deleteTheme: "Delete Theme",
     processingFile: "Processing file...",
-    analyzingQuiz: "AI is analyzing quiz content..."
+    analyzingQuiz: "AI is analyzing quiz content...",
+    prompts: "Custom Prompts",
+    polishPrompt: "Polish Prompt",
+    expandPrompt: "Expand Prompt"
   },
   zh: {
     explorer: "资源管理器",
@@ -119,7 +122,10 @@ export const translations = {
     darkMode: "暗色模式",
     deleteTheme: "删除主题",
     processingFile: "正在处理文件...",
-    analyzingQuiz: "AI正在分析试卷内容..."
+    analyzingQuiz: "AI正在分析试卷内容...",
+    prompts: "自定义提示词",
+    polishPrompt: "润色提示词",
+    expandPrompt: "扩写提示词"
   }
 };
 
