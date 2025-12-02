@@ -1,5 +1,3 @@
-
-
 import React from 'react';
 import { 
   Columns, 
@@ -27,7 +25,8 @@ import {
   Redo,
   PanelRightOpen,
   PanelRightClose,
-  Mic
+  Mic,
+  Box
 } from 'lucide-react';
 import { ViewMode, Theme, AIProvider } from '../types';
 import { translations, Language } from '../utils/translations';
@@ -186,12 +185,22 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <Eye size={18} />
           </button>
           
+          {/* Note Space 3D Toggle */}
+          <button
+            onClick={() => setViewMode(ViewMode.NoteSpace)}
+            className={`p-2 rounded-md transition-all ${viewMode === ViewMode.NoteSpace ? 'bg-white dark:bg-cyber-500 text-violet-500 dark:text-white shadow-sm' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
+            title="3D Note Space"
+          >
+            <Box size={18} />
+          </button>
+          
           <div className="w-px h-full bg-paper-300 dark:bg-cyber-600 mx-1"></div>
 
           <button
             onClick={onToggleSplitView}
             className={`p-2 rounded-md transition-all ${isSplitView ? 'bg-white dark:bg-cyber-500 text-cyan-600 dark:text-white shadow-sm' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
             title={isSplitView ? "Close Split View" : "Split View (Multi-file)"}
+            disabled={viewMode === ViewMode.NoteSpace} // Disable in 3D mode
           >
             {isSplitView ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
           </button>
@@ -204,7 +213,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <div className="hidden sm:flex rounded-lg border border-cyan-500/20 bg-cyan-50/50 dark:bg-cyan-900/10 p-0.5">
             <button
               onClick={onAIPolish}
-              disabled={isAIThinking}
+              disabled={isAIThinking || viewMode === ViewMode.NoteSpace}
               className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium text-cyan-700 dark:text-cyan-400 hover:bg-white dark:hover:bg-cyber-700/50 transition-all disabled:opacity-50"
               title={`${t.polish} (${activeProvider})`}
             >

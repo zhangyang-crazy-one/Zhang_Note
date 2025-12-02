@@ -9,7 +9,8 @@ import { KnowledgeGraph } from './components/KnowledgeGraph';
 import { QuizPanel } from './components/QuizPanel';
 import { MindMap } from './components/MindMap';
 import { LoginScreen } from './components/LoginScreen';
-import { ViewMode, AIState, MarkdownFile, AIConfig, ChatMessage, GraphData, AppTheme, Quiz, RAGStats, AppShortcut, PaneType } from './types';
+import { NoteSpace } from './components/NoteSpace';
+import { ViewMode, AIState, MarkdownFile, AIConfig, ChatMessage, GraphData, AppTheme, Quiz, RAGStats, AppShortcut, PaneType, NoteLayoutItem } from './types';
 import { polishContent, expandContent, generateAIResponse, generateKnowledgeGraph, synthesizeKnowledgeBase, generateQuiz, generateMindMap, extractQuizFromRawContent, compactConversation } from './services/aiService';
 import { applyTheme, getAllThemes, getSavedThemeId, saveCustomTheme, deleteCustomTheme, DEFAULT_THEMES, getLastUsedThemeIdForMode } from './services/themeService';
 import { readDirectory, saveFileToDisk, processPdfFile, extractTextFromFile, parseCsvToQuiz, parseJsonToQuiz, isExtensionSupported } from './services/fileService';
@@ -158,6 +159,19 @@ const App: React.FC = () => {
   // Refs for Scroll Sync (Secondary Pane)
   const secondaryEditorRef = useRef<HTMLTextAreaElement>(null);
   const secondaryPreviewRef = useRef<HTMLDivElement>(null);
+
+  // --- Note Space Layout State ---
+  const [noteLayout, setNoteLayout] = useState<Record<string, NoteLayoutItem>>(() => {
+    try {
+      const saved = localStorage.getItem('neon-note-layout');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) { return {}; }
+  });
+
+  // Save layout
+  useEffect(() => {
+    localStorage.setItem('neon-note-layout', JSON.stringify(noteLayout));
+  }, [noteLayout]);
 
   // --- Undo/Redo State ---
   const [history, setHistory] = useState<Record<string, FileHistory>>({});
@@ -1151,15 +1165,28 @@ const App: React.FC = () => {
          
          {/* Main Content Area: Handles Multi-Pane Logic */}
          <div className="flex-1 flex overflow-hidden">
-             {/* Primary Pane */}
-             {renderPaneContent(primaryFileId, 'primary')}
+             {viewMode === ViewMode.NoteSpace ? (
+                 <NoteSpace 
+                     files={files}
+                     activeFileId={activeFileId}
+                     onSelectFile={handleSelectFile}
+                     layout={noteLayout}
+                     onLayoutChange={setNoteLayout}
+                     theme={themes.find(t => t.id === activeThemeId)?.type || 'dark'}
+                 />
+             ) : (
+                 <>
+                     {/* Primary Pane */}
+                     {renderPaneContent(primaryFileId, 'primary')}
 
-             {/* Secondary Pane (Split View) */}
-             {secondaryFileId && (
-                <>
-                    <div className="w-1 bg-paper-200 dark:bg-cyber-700 cursor-col-resize hover:bg-cyan-500 transition-colors" />
-                    {renderPaneContent(secondaryFileId, 'secondary')}
-                </>
+                     {/* Secondary Pane (Split View) */}
+                     {secondaryFileId && (
+                        <>
+                            <div className="w-1 bg-paper-200 dark:bg-cyber-700 cursor-col-resize hover:bg-cyan-500 transition-colors" />
+                            {renderPaneContent(secondaryFileId, 'secondary')}
+                        </>
+                     )}
+                 </>
              )}
          </div>
          

@@ -16,7 +16,8 @@ export enum ViewMode {
   Preview = 'PREVIEW',
   Graph = 'GRAPH',
   Quiz = 'QUIZ',
-  MindMap = 'MINDMAP'
+  MindMap = 'MINDMAP',
+  NoteSpace = 'NOTE_SPACE'
 }
 
 export type ThemeType = 'dark' | 'light';
@@ -110,6 +111,20 @@ export interface GraphLink {
 export interface GraphData {
   nodes: GraphNode[];
   links: GraphLink[];
+}
+
+// 3D Note Space Types
+export interface NoteLayoutItem {
+  id: string; // matches file.id
+  x: number;
+  y: number;
+  z: number;
+  rotation: number; // Y-axis rotation in degrees
+  width: number;
+  height: number;
+  scale: number;
+  color?: string; // Optional background override
+  isPinned?: boolean;
 }
 
 // Quiz System Types
