@@ -4,6 +4,10 @@ import { Quiz, AIConfig, Theme, MistakeRecord } from '../types';
 import { CheckCircle2, XCircle, HelpCircle, Download, BookOpen, AlertTriangle, ArrowRight, ArrowLeft, RotateCcw, BookmarkX, Trash2, Sparkles, Loader2 } from 'lucide-react';
 import { gradeQuizQuestion, generateQuizExplanation } from '../services/aiService';
 import { translations, Language } from '../utils/translations';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 
 interface QuizPanelProps {
   quiz: Quiz;
@@ -253,25 +257,31 @@ export const QuizPanel: React.FC<QuizPanelProps> = ({ quiz, aiConfig, theme, onC
                                     {mistake.quizTitle && <span>{mistake.quizTitle}</span>}
                                 </div>
                                 
-                                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-4">{mistake.question}</h3>
+                                <div className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-4 prose dark:prose-invert">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{mistake.question}</ReactMarkdown>
+                                </div>
                                 
                                 <div className="grid md:grid-cols-2 gap-4">
                                     <div className="p-3 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/30">
                                         <span className="text-xs font-bold text-red-500 uppercase tracking-wide block mb-1">Your Answer</span>
-                                        <p className="text-slate-700 dark:text-slate-300">{mistake.userAnswer}</p>
+                                        <div className="text-slate-700 dark:text-slate-300 prose dark:prose-invert">
+                                            <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{mistake.userAnswer}</ReactMarkdown>
+                                        </div>
                                     </div>
                                     <div className="p-3 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-100 dark:border-green-900/30">
                                         <span className="text-xs font-bold text-green-500 uppercase tracking-wide block mb-1">Correct Answer</span>
-                                        <p className="text-slate-700 dark:text-slate-300">{mistake.correctAnswer}</p>
+                                        <div className="text-slate-700 dark:text-slate-300 prose dark:prose-invert">
+                                            <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{mistake.correctAnswer}</ReactMarkdown>
+                                        </div>
                                     </div>
                                 </div>
                                 
                                 {mistake.explanation && (
                                     <div className="mt-4 pt-4 border-t border-paper-100 dark:border-cyber-700">
-                                        <p className="text-sm text-slate-600 dark:text-slate-400 italic">
+                                        <div className="text-sm text-slate-600 dark:text-slate-400 italic prose dark:prose-invert">
                                             <span className="font-semibold not-italic mr-1">Explanation:</span>
-                                            {mistake.explanation}
-                                        </p>
+                                            <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{mistake.explanation}</ReactMarkdown>
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -349,13 +359,13 @@ export const QuizPanel: React.FC<QuizPanelProps> = ({ quiz, aiConfig, theme, onC
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 md:p-12 flex justify-center">
+        <div className="flex-1 overflow-y-auto p-6 md:p-12 flex justify-center custom-scrollbar">
             <div className="w-full max-w-3xl space-y-8">
                 {/* Question Card */}
                 <div className="space-y-4 animate-fadeIn">
-                    <h3 className="text-2xl font-bold text-slate-800 dark:text-slate-100 leading-relaxed">
-                        {activeQuestion.question}
-                    </h3>
+                    <div className="text-2xl font-bold text-slate-800 dark:text-slate-100 leading-relaxed prose dark:prose-invert max-w-none">
+                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{activeQuestion.question}</ReactMarkdown>
+                    </div>
                     
                     {/* Options / Input */}
                     <div className="space-y-3 pt-4">
@@ -381,8 +391,18 @@ export const QuizPanel: React.FC<QuizPanelProps> = ({ quiz, aiConfig, theme, onC
                                     disabled={isAnswered}
                                     className={`w-full text-left p-4 rounded-xl border-2 transition-all duration-200 flex items-center justify-between group ${optionClass}`}
                                 >
-                                    <span className="font-medium text-lg">{opt}</span>
-                                    {isSelected && <CheckCircle2 size={20} className="text-cyan-500" />}
+                                    <div className="font-medium text-lg prose dark:prose-invert max-w-none pointer-events-none">
+                                        <ReactMarkdown 
+                                            remarkPlugins={[remarkGfm, remarkMath]} 
+                                            rehypePlugins={[rehypeKatex]}
+                                            components={{
+                                                p: ({node, ...props}) => <span {...props} /> 
+                                            }}
+                                        >
+                                            {opt}
+                                        </ReactMarkdown>
+                                    </div>
+                                    {isSelected && <CheckCircle2 size={20} className="text-cyan-500 shrink-0" />}
                                 </button>
                              );
                         })}
@@ -410,10 +430,10 @@ export const QuizPanel: React.FC<QuizPanelProps> = ({ quiz, aiConfig, theme, onC
                                 </h4>
                                 
                                 {activeQuestion.explanation ? (
-                                    <p className="text-slate-600 dark:text-slate-300 mt-2 text-sm leading-relaxed">
+                                    <div className="text-slate-600 dark:text-slate-300 mt-2 text-sm leading-relaxed prose dark:prose-invert max-w-none">
                                         <span className="font-bold opacity-70">Explanation: </span>
-                                        {activeQuestion.explanation}
-                                    </p>
+                                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{activeQuestion.explanation}</ReactMarkdown>
+                                    </div>
                                 ) : (
                                     <div className="mt-3">
                                         <button 

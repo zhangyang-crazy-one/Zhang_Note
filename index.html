@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>NeonMark Studio</title>
+    <title>ZhangNote</title>
     <!-- Enable Typography Plugin -->
     <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
     <script>
@@ -125,7 +125,7 @@
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&family=Patrick+Hand&family=Permanent+Marker&family=Long+Cang&family=Ma+Shan+Zheng&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&family=Patrick+Hand&family=Permanent+Marker&family=Long+Cang&family=Ma+Shan+Zheng&family=Pixelify+Sans:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
     
@@ -172,6 +172,121 @@
       .bg-radial-fade {
         background: radial-gradient(circle at center, transparent 0%, rgb(var(--bg-main)) 100%);
       }
+
+      /* ---------------------------------------------------- */
+      /* PIXEL THEME OVERRIDES                                */
+      /* ---------------------------------------------------- */
+      [data-theme="pixel-retro"] {
+        --font-primary: 'Pixelify Sans', sans-serif;
+        --font-header: 'Press Start 2P', cursive;
+      }
+      
+      /* Remove all border radius */
+      [data-theme="pixel-retro"] * {
+        border-radius: 0 !important;
+      }
+
+      /* Chunky Scrollbar */
+      [data-theme="pixel-retro"] ::-webkit-scrollbar {
+        width: 16px;
+        height: 16px;
+        background: #000;
+        border-left: 2px solid #555;
+      }
+      [data-theme="pixel-retro"] ::-webkit-scrollbar-track {
+        background: repeating-linear-gradient(
+          45deg,
+          #222,
+          #222 4px,
+          #333 4px,
+          #333 8px
+        );
+      }
+      [data-theme="pixel-retro"] ::-webkit-scrollbar-thumb {
+        background: rgb(var(--primary-500));
+        border: 2px solid #fff;
+        box-shadow: inset -2px -2px 0px rgba(0,0,0,0.5), inset 2px 2px 0px rgba(255,255,255,0.5);
+      }
+      [data-theme="pixel-retro"] ::-webkit-scrollbar-thumb:hover {
+        background: rgb(var(--primary-600)); 
+      }
+      [data-theme="pixel-retro"] ::-webkit-scrollbar-corner {
+        background: #000;
+      }
+      
+      /* Chunky Buttons & Interactables */
+      [data-theme="pixel-retro"] button,
+      [data-theme="pixel-retro"] .btn,
+      [data-theme="pixel-retro"] [role="button"] {
+        /* position: relative; Removed to allow absolute positioning of icons (e.g. Chat Send button) */
+        border: 2px solid #fff !important; /* High contrast border */
+        box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
+        image-rendering: pixelated;
+        transition: transform 0.1s, box-shadow 0.1s;
+        text-transform: uppercase;
+        font-family: 'Pixelify Sans', monospace;
+        letter-spacing: 1px;
+      }
+      
+      /* Hover state for buttons */
+      [data-theme="pixel-retro"] button:hover:not(:disabled),
+      [data-theme="pixel-retro"] [role="button"]:hover {
+        transform: translate(-1px, -1px);
+        box-shadow: 6px 6px 0px 0px rgba(0,0,0,1);
+      }
+      
+      /* Active state for buttons */
+      [data-theme="pixel-retro"] button:active:not(:disabled),
+      [data-theme="pixel-retro"] [role="button"]:active {
+        transform: translate(2px, 2px);
+        box-shadow: 2px 2px 0px 0px rgba(0,0,0,1);
+      }
+
+      /* Inputs, Textareas, Selects */
+      [data-theme="pixel-retro"] input, 
+      [data-theme="pixel-retro"] textarea,
+      [data-theme="pixel-retro"] select {
+        border: 2px solid rgb(var(--text-secondary)) !important;
+        box-shadow: inset 4px 4px 0px 0px rgba(0,0,0,0.3);
+        background-color: rgb(var(--bg-main));
+        font-family: 'Pixelify Sans', monospace !important;
+      }
+      [data-theme="pixel-retro"] input:focus, 
+      [data-theme="pixel-retro"] textarea:focus {
+        border-color: rgb(var(--primary-500)) !important;
+        box-shadow: inset 4px 4px 0px 0px rgba(0,0,0,0.5);
+        outline: none;
+      }
+
+      /* Container Panels */
+      [data-theme="pixel-retro"] .bg-white,
+      [data-theme="pixel-retro"] .bg-paper-100,
+      [data-theme="pixel-retro"] .bg-paper-50,
+      [data-theme="pixel-retro"] .dark\:bg-cyber-800,
+      [data-theme="pixel-retro"] .dark\:bg-cyber-900 {
+        border: 2px solid rgb(var(--border-main));
+        box-shadow: 6px 6px 0px 0px rgba(0,0,0,0.5);
+      }
+
+      /* Typography overrides */
+      [data-theme="pixel-retro"] .font-mono {
+         font-family: 'Pixelify Sans', monospace !important;
+      }
+      [data-theme="pixel-retro"] code {
+         border: 1px dashed rgb(var(--primary-500)) !important;
+         border-radius: 0 !important;
+         background: #000 !important;
+         color: rgb(var(--secondary-500)) !important;
+      }
+      
+      /* Editor specifics */
+      [data-theme="pixel-retro"] .prose h1,
+      [data-theme="pixel-retro"] .prose h2,
+      [data-theme="pixel-retro"] .prose h3 {
+        text-shadow: 2px 2px 0px #000;
+        letter-spacing: 1px;
+      }
+
     </style>
   <script type="importmap">
 {

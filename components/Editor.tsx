@@ -6,9 +6,10 @@ interface EditorProps {
   onChange: (value: string) => void;
   onUndo?: () => void;
   onRedo?: () => void;
+  onScroll?: (e: React.UIEvent<HTMLTextAreaElement>) => void;
 }
 
-export const Editor = forwardRef<HTMLTextAreaElement, EditorProps>(({ content, onChange, onUndo, onRedo }, ref) => {
+export const Editor = forwardRef<HTMLTextAreaElement, EditorProps>(({ content, onChange, onUndo, onRedo, onScroll }, ref) => {
   
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Check for Ctrl/Cmd
@@ -31,10 +32,11 @@ export const Editor = forwardRef<HTMLTextAreaElement, EditorProps>(({ content, o
     <div className="h-full w-full bg-paper-100 dark:bg-cyber-800 relative group transition-colors duration-300">
       <textarea
         ref={ref}
-        className="w-full h-full p-8 bg-transparent text-slate-800 dark:text-slate-300 font-mono text-sm leading-relaxed resize-none focus:outline-none focus:ring-0 custom-scrollbar selection:bg-cyan-200 dark:selection:bg-cyber-500/30 placeholder-slate-400 dark:placeholder-slate-600"
+        className="w-full h-full p-8 bg-transparent text-slate-800 dark:text-slate-300 font-mono text-sm leading-relaxed resize-none focus:outline-none focus:ring-0 custom-scrollbar overflow-y-auto selection:bg-cyan-200 dark:selection:bg-cyber-500/30 placeholder-slate-400 dark:placeholder-slate-600"
         value={content}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
+        onScroll={onScroll}
         placeholder="Type some cool markdown here..."
         spellCheck={false}
       />

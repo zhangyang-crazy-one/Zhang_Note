@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Editor } from './components/Editor';
@@ -10,17 +8,19 @@ import { AISettingsModal } from './components/AISettingsModal';
 import { KnowledgeGraph } from './components/KnowledgeGraph';
 import { QuizPanel } from './components/QuizPanel';
 import { MindMap } from './components/MindMap';
-import { ViewMode, AIState, MarkdownFile, AIConfig, ChatMessage, GraphData, AppTheme, Quiz, RAGStats, AppShortcut } from './types';
+import { LoginScreen } from './components/LoginScreen';
+import { ViewMode, AIState, MarkdownFile, AIConfig, ChatMessage, GraphData, AppTheme, Quiz, RAGStats, AppShortcut, PaneType } from './types';
 import { polishContent, expandContent, generateAIResponse, generateKnowledgeGraph, synthesizeKnowledgeBase, generateQuiz, generateMindMap, extractQuizFromRawContent, compactConversation } from './services/aiService';
 import { applyTheme, getAllThemes, getSavedThemeId, saveCustomTheme, deleteCustomTheme, DEFAULT_THEMES, getLastUsedThemeIdForMode } from './services/themeService';
-import { readDirectory, saveFileToDisk, processPdfFile, extractTextFromFile, parseCsvToQuiz, isExtensionSupported } from './services/fileService';
+import { readDirectory, saveFileToDisk, processPdfFile, extractTextFromFile, parseCsvToQuiz, parseJsonToQuiz, isExtensionSupported } from './services/fileService';
 import { VectorStore } from './services/ragService';
-import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, X } from 'lucide-react';
 import { translations, Language } from './utils/translations';
+import { useSpeechRecognition } from './hooks/useSpeechRecognition';
 
 const generateId = () => Math.random().toString(36).substring(2, 11);
 
-const DEFAULT_CONTENT = "# Welcome to NeonMark ⚡\n\nTry opening a local folder or importing a PDF!";
+const DEFAULT_CONTENT = "# Welcome to ZhangNote ⚡\n\nTry opening a local folder or importing a PDF!";
 
 const DEFAULT_FILE: MarkdownFile = {
   id: 'default-1',
@@ -61,6 +61,9 @@ interface FileHistory {
 }
 
 const App: React.FC = () => {
+  // --- Auth State ---
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
   // --- Theme State ---
   const [themes, setThemes] = useState<AppTheme[]>(() => {
     const t = getAllThemes();
@@ -121,12 +124,26 @@ const App: React.FC = () => {
     return [DEFAULT_FILE];
   });
   
-  const [activeFileId, setActiveFileId] = useState<string>(() => {
+  // PANE STATE MANAGEMENT
+  const [primaryFileId, setPrimaryFileId] = useState<string>(() => {
     const saved = localStorage.getItem('neon-active-id');
     return saved || 'default-1';
   });
 
+  const [secondaryFileId, setSecondaryFileId] = useState<string | null>(null);
+  const [activePane, setActivePane] = useState<PaneType>('primary');
+
+  // Derive active file based on focused pane
+  const activeFileId = activePane === 'primary' ? primaryFileId : (secondaryFileId || primaryFileId);
   const activeFile = files.find(f => f.id === activeFileId) || files[0] || DEFAULT_FILE;
+
+  // Refs for Scroll Sync (Primary Pane)
+  const primaryEditorRef = useRef<HTMLTextAreaElement>(null);
+  const primaryPreviewRef = useRef<HTMLDivElement>(null);
+  
+  // Refs for Scroll Sync (Secondary Pane)
+  const secondaryEditorRef = useRef<HTMLTextAreaElement>(null);
+  const secondaryPreviewRef = useRef<HTMLDivElement>(null);
 
   // --- Undo/Redo State ---
   const [history, setHistory] = useState<Record<string, FileHistory>>({});
@@ -182,10 +199,20 @@ const App: React.FC = () => {
   const [aiState, setAiState] = useState<AIState>({ isThinking: false, error: null, message: null });
   const [ragStats, setRagStats] = useState<RAGStats>({ totalFiles: 0, indexedFiles: 0, totalChunks: 0, isIndexing: false });
 
-  // Refs
+  // Refs needed for persistence
   const filesRef = useRef(files);
-  const activeFileIdRef = useRef(activeFileId);
-  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const activeFileIdRef = useRef(primaryFileId);
+
+  // Scroll Sync Flags
+  const isScrollingPrimaryEditor = useRef(false);
+  const isScrollingPrimaryPreview = useRef(false);
+  const isScrollingSecondaryEditor = useRef(false);
+  const isScrollingSecondaryPreview = useRef(false);
+
+  const primaryEditorScrollTimeout = useRef<any>(null);
+  const primaryPreviewScrollTimeout = useRef<any>(null);
+  const secondaryEditorScrollTimeout = useRef<any>(null);
+  const secondaryPreviewScrollTimeout = useRef<any>(null);
   
   // RAG Service
   const [vectorStore] = useState(() => new VectorStore());
@@ -196,8 +223,8 @@ const App: React.FC = () => {
 
   useEffect(() => {
     filesRef.current = files;
-    activeFileIdRef.current = activeFileId;
-  }, [files, activeFileId]);
+    activeFileIdRef.current = primaryFileId; // Persist primarily the main file
+  }, [files, primaryFileId]);
   
   // Update RAG stats whenever files change (only total count)
   useEffect(() => {
@@ -258,11 +285,139 @@ const App: React.FC = () => {
     setAiState({ isThinking: false, error: isError ? message : null, message: isError ? null : message });
     setTimeout(() => setAiState(prev => ({ ...prev, message: null, error: null })), 4000);
   }, []);
+
+  // --- Layout Handlers ---
+  const handleToggleSplitView = () => {
+    if (secondaryFileId) {
+      // Close split
+      setSecondaryFileId(null);
+      setActivePane('primary');
+    } else {
+      // Open split (clone active or pick next)
+      setSecondaryFileId(primaryFileId);
+      setActivePane('secondary');
+    }
+  };
+
+  const handleSelectFile = (id: string) => {
+    if (activePane === 'primary') {
+      setPrimaryFileId(id);
+    } else {
+      setSecondaryFileId(id);
+    }
+  };
   
   // Memoized Node Click Handler to prevent Graph re-renders
   const handleNodeClick = useCallback((id: string) => {
       showToast(`Selected: ${id}`);
   }, [showToast]);
+
+  // --- Scroll Sync Logic (Primary) ---
+  const handlePrimaryEditorScroll = useCallback(() => {
+    if (!primaryEditorRef.current || !primaryPreviewRef.current) return;
+    if (isScrollingPrimaryPreview.current) return;
+
+    isScrollingPrimaryEditor.current = true;
+    const editor = primaryEditorRef.current;
+    const preview = primaryPreviewRef.current;
+    
+    requestAnimationFrame(() => {
+        const maxScrollEditor = editor.scrollHeight - editor.clientHeight;
+        const maxScrollPreview = preview.scrollHeight - preview.clientHeight;
+
+        if (maxScrollEditor > 0 && maxScrollPreview > 0) {
+            const percentage = editor.scrollTop / maxScrollEditor;
+            if (Number.isFinite(percentage)) {
+                 preview.scrollTop = percentage * maxScrollPreview;
+            }
+        }
+    });
+    
+    if (primaryEditorScrollTimeout.current) clearTimeout(primaryEditorScrollTimeout.current);
+    primaryEditorScrollTimeout.current = setTimeout(() => {
+        isScrollingPrimaryEditor.current = false;
+    }, 200); 
+  }, []);
+
+  const handlePrimaryPreviewScroll = useCallback(() => {
+    if (!primaryEditorRef.current || !primaryPreviewRef.current) return;
+    if (isScrollingPrimaryEditor.current) return;
+    
+    isScrollingPrimaryPreview.current = true;
+    const editor = primaryEditorRef.current;
+    const preview = primaryPreviewRef.current;
+    
+    requestAnimationFrame(() => {
+        const maxScrollEditor = editor.scrollHeight - editor.clientHeight;
+        const maxScrollPreview = preview.scrollHeight - preview.clientHeight;
+        
+        if (maxScrollPreview > 0 && maxScrollEditor > 0) {
+            const percentage = preview.scrollTop / maxScrollPreview;
+            if (Number.isFinite(percentage)) {
+                editor.scrollTop = percentage * maxScrollEditor;
+            }
+        }
+    });
+    
+    if (primaryPreviewScrollTimeout.current) clearTimeout(primaryPreviewScrollTimeout.current);
+    primaryPreviewScrollTimeout.current = setTimeout(() => {
+        isScrollingPrimaryPreview.current = false;
+    }, 200);
+  }, []);
+
+  // --- Scroll Sync Logic (Secondary) ---
+  const handleSecondaryEditorScroll = useCallback(() => {
+    if (!secondaryEditorRef.current || !secondaryPreviewRef.current) return;
+    if (isScrollingSecondaryPreview.current) return;
+
+    isScrollingSecondaryEditor.current = true;
+    const editor = secondaryEditorRef.current;
+    const preview = secondaryPreviewRef.current;
+    
+    requestAnimationFrame(() => {
+        const maxScrollEditor = editor.scrollHeight - editor.clientHeight;
+        const maxScrollPreview = preview.scrollHeight - preview.clientHeight;
+        
+        if (maxScrollEditor > 0 && maxScrollPreview > 0) {
+             const percentage = editor.scrollTop / maxScrollEditor;
+             if (Number.isFinite(percentage)) {
+                  preview.scrollTop = percentage * maxScrollPreview;
+             }
+        }
+    });
+    
+    if (secondaryEditorScrollTimeout.current) clearTimeout(secondaryEditorScrollTimeout.current);
+    secondaryEditorScrollTimeout.current = setTimeout(() => {
+        isScrollingSecondaryEditor.current = false;
+    }, 200);
+  }, []);
+
+  const handleSecondaryPreviewScroll = useCallback(() => {
+    if (!secondaryEditorRef.current || !secondaryPreviewRef.current) return;
+    if (isScrollingSecondaryEditor.current) return;
+    
+    isScrollingSecondaryPreview.current = true;
+    const editor = secondaryEditorRef.current;
+    const preview = secondaryPreviewRef.current;
+    
+    requestAnimationFrame(() => {
+        const maxScrollEditor = editor.scrollHeight - editor.clientHeight;
+        const maxScrollPreview = preview.scrollHeight - preview.clientHeight;
+        
+        if (maxScrollPreview > 0 && maxScrollEditor > 0) {
+            const percentage = preview.scrollTop / maxScrollPreview;
+            if (Number.isFinite(percentage)) {
+                editor.scrollTop = percentage * maxScrollEditor;
+            }
+        }
+    });
+    
+    if (secondaryPreviewScrollTimeout.current) clearTimeout(secondaryPreviewScrollTimeout.current);
+    secondaryPreviewScrollTimeout.current = setTimeout(() => {
+        isScrollingSecondaryPreview.current = false;
+    }, 200);
+  }, []);
+
 
   const handleCreateItem = (type: 'file' | 'folder', name: string, parentPath: string = '') => {
     const sanitizedName = name.replace(/[\\/:*?"<>|]/g, '-');
@@ -299,24 +454,20 @@ const App: React.FC = () => {
             path: finalPath
         };
         setFiles(prev => [...prev, newFile]);
-        setActiveFileId(newFile.id);
+        handleSelectFile(newFile.id);
         showToast(`File '${sanitizedName}' created`);
     }
   };
 
   const handleMoveItem = (sourceId: string, targetFolderPath: string | null) => {
-    // 1. Find Source
     const sourceFile = files.find(f => f.id === sourceId);
     if (!sourceFile) return;
 
     const sourcePath = sourceFile.path || sourceFile.name;
     const isFolder = sourceFile.name === '.keep'; 
-    
-    // If it's a folder, the actual "path" of the folder is the parent directory of the .keep file
     const actualSourcePath = isFolder ? sourcePath.substring(0, sourcePath.lastIndexOf('/')) : sourcePath;
     const sourceName = isFolder ? actualSourcePath.split('/').pop() : sourceFile.name;
     
-    // 2. Validate Target
     if (isFolder && targetFolderPath) {
         if (targetFolderPath === actualSourcePath || targetFolderPath.startsWith(actualSourcePath + '/')) {
             showToast("Cannot move folder into itself", true);
@@ -324,23 +475,19 @@ const App: React.FC = () => {
         }
     }
     
-    // 3. Calculate New Paths
     const newFiles = files.map(f => {
         const currentPath = f.path || f.name;
 
-        // Logic for moving a specific File
         if (!isFolder && f.id === sourceId) {
              const fileName = currentPath.split('/').pop();
              const newPath = targetFolderPath ? `${targetFolderPath}/${fileName}` : fileName;
-             // Check if file already exists at dest
              if (files.some(ex => (ex.path || ex.name) === newPath && ex.id !== sourceId)) {
                  showToast("File with same name exists in destination", true);
-                 return f; // Cancel for this file
+                 return f;
              }
              return { ...f, path: newPath! };
         }
 
-        // Logic for moving a Folder (Recursive rename of all children)
         if (isFolder && currentPath.startsWith(actualSourcePath!)) {
             const relativePath = currentPath.substring(actualSourcePath!.length);
             const newRootPath = targetFolderPath ? `${targetFolderPath}/${sourceName}` : sourceName;
@@ -357,7 +504,10 @@ const App: React.FC = () => {
     if (files.length <= 1) return;
     const newFiles = files.filter(f => f.id !== id);
     setFiles(newFiles);
-    if (activeFileId === id) setActiveFileId(newFiles[0].id);
+    
+    // Safety check for panes
+    if (primaryFileId === id) setPrimaryFileId(newFiles[0].id);
+    if (secondaryFileId === id) setSecondaryFileId(null);
   };
 
   const updateActiveFile = (content: string, skipHistory = false) => {
@@ -369,13 +519,7 @@ const App: React.FC = () => {
            const newPast = [...fileHist.past, activeFile.content];
            if (newPast.length > MAX_HISTORY) newPast.shift();
            
-           return {
-             ...prev,
-             [activeFileId]: {
-               past: newPast,
-               future: []
-             }
-           };
+           return { ...prev, [activeFileId]: { past: newPast, future: [] } };
          });
       }
       lastEditTimeRef.current = now;
@@ -386,57 +530,41 @@ const App: React.FC = () => {
     );
     setFiles(updated);
   };
+  
+  // Real-time Dictation Integration
+  const { isListening: isDictating, toggle: toggleDictation } = useSpeechRecognition({
+      continuous: true,
+      language: aiConfig.language === 'zh' ? 'zh-CN' : 'en-US',
+      onResult: (transcript, isFinal) => {
+          if (isFinal) {
+             const currentContent = activeFile.content;
+             const spacer = currentContent.length > 0 && !currentContent.endsWith(' ') && !currentContent.endsWith('\n') ? ' ' : '';
+             updateActiveFile(currentContent + spacer + transcript);
+          }
+      },
+      onEnd: () => {
+          // Optional: handle auto-restart if desired, but button toggle is safer
+      }
+  });
 
   const handleUndo = () => {
     const fileHist = history[activeFileId];
     if (!fileHist || fileHist.past.length === 0) return;
-
     const previous = fileHist.past[fileHist.past.length - 1];
     const newPast = fileHist.past.slice(0, -1);
     const newFuture = [activeFile.content, ...fileHist.future];
-
-    setHistory(prev => ({
-      ...prev,
-      [activeFileId]: {
-        past: newPast,
-        future: newFuture
-      }
-    }));
-
+    setHistory(prev => ({ ...prev, [activeFileId]: { past: newPast, future: newFuture } }));
     updateActiveFile(previous, true);
   };
 
   const handleRedo = () => {
     const fileHist = history[activeFileId];
     if (!fileHist || fileHist.future.length === 0) return;
-
     const next = fileHist.future[0];
     const newFuture = fileHist.future.slice(1);
     const newPast = [...fileHist.past, activeFile.content];
-
-    setHistory(prev => ({
-      ...prev,
-      [activeFileId]: {
-        past: newPast,
-        future: newFuture
-      }
-    }));
-
+    setHistory(prev => ({ ...prev, [activeFileId]: { past: newPast, future: newFuture } }));
     updateActiveFile(next, true);
-  };
-
-  const saveSnapshot = () => {
-    setHistory(prev => {
-      const fileHist = prev[activeFileId] || { past: [], future: [] };
-      return {
-        ...prev,
-        [activeFileId]: {
-          past: [...fileHist.past, activeFile.content],
-          future: []
-        }
-      };
-    });
-    lastEditTimeRef.current = Date.now();
   };
 
   const renameActiveFile = (newName: string) => {
@@ -445,49 +573,31 @@ const App: React.FC = () => {
          const oldPath = f.path || f.name;
          const pathParts = oldPath.replace(/\\/g, '/').split('/');
          const oldNameWithExt = pathParts[pathParts.length - 1];
-         
          const lastDotIndex = oldNameWithExt.lastIndexOf('.');
          const ext = lastDotIndex !== -1 ? oldNameWithExt.substring(lastDotIndex) : '';
-         
          let finalName = newName;
          if (ext && !finalName.toLowerCase().endsWith(ext.toLowerCase())) {
-             if (finalName.indexOf('.') === -1) {
-                 finalName += ext;
-             }
+             if (finalName.indexOf('.') === -1) finalName += ext;
          }
-         
          pathParts[pathParts.length - 1] = finalName;
          const newPath = pathParts.join('/');
-         
          const nameForDisplay = finalName.includes('.') ? finalName.substring(0, finalName.lastIndexOf('.')) : finalName;
-         
          return { ...f, name: nameForDisplay, path: newPath };
       }
       return f;
     }));
   };
 
-  // --- New Features ---
-
   const handleIndexKnowledgeBase = async (forceList?: MarkdownFile[]) => {
     if (ragStats.isIndexing) return;
-    
-    // Use provided list or fallback to current state ref (to avoid stale closures)
     const targetFiles = forceList || filesRef.current;
-    
-    // Deduplicate based on ID just in case
     const uniqueFilesMap = new Map();
     targetFiles.forEach(f => {
-      if (!f.name.endsWith('.keep') && f.content.trim().length > 0) {
-        uniqueFilesMap.set(f.id, f);
-      }
+      if (!f.name.endsWith('.keep') && f.content.trim().length > 0) uniqueFilesMap.set(f.id, f);
     });
     const validFiles = Array.from(uniqueFilesMap.values());
-    
     setRagStats(prev => ({ ...prev, isIndexing: true, totalFiles: validFiles.length }));
-    
-    const filesToIndex = validFiles.slice(0, 20); // Cap at 20 for demo
-    
+    const filesToIndex = validFiles.slice(0, 20); 
     try {
         for (const file of filesToIndex) {
             if (file.content && file.content.length > 0) {
@@ -500,22 +610,16 @@ const App: React.FC = () => {
                 }));
             }
         }
-    } catch (e) {
-        console.error("Indexing error", e);
-    } finally {
-        setRagStats(prev => ({ ...prev, isIndexing: false }));
-    }
+    } catch (e) { console.error("Indexing error", e); } finally { setRagStats(prev => ({ ...prev, isIndexing: false })); }
   };
 
   const handleOpenFolder = async () => {
-    if (!('showDirectoryPicker' in window)) {
-      throw new Error("Directory Picker not supported");
-    }
+    if (!('showDirectoryPicker' in window)) throw new Error("Directory Picker not supported");
     const dirHandle = await window.showDirectoryPicker();
     const loadedFiles = await readDirectory(dirHandle);
     if (loadedFiles.length > 0) {
       setFiles(loadedFiles);
-      setActiveFileId(loadedFiles[0].id);
+      setPrimaryFileId(loadedFiles[0].id);
       showToast(`${t.filesLoaded}: ${loadedFiles.length}`);
     } else {
       showToast(t.noFilesFound);
@@ -525,17 +629,13 @@ const App: React.FC = () => {
   const handleImportFolderFiles = async (fileList: FileList) => {
     const newFiles: MarkdownFile[] = [];
     setAiState({ isThinking: true, message: t.processingFile, error: null });
-    
     try {
       for (let i = 0; i < fileList.length; i++) {
         const file = fileList[i];
         if (isExtensionSupported(file.name)) {
            const content = await extractTextFromFile(file, aiConfig.apiKey);
            let path = file.webkitRelativePath || file.name;
-           if (path.match(/\.(pdf|docx|doc)$/i)) {
-               path = path.replace(/\.(pdf|docx|doc)$/i, '.md');
-           }
-           
+           if (path.match(/\.(pdf|docx|doc)$/i)) path = path.replace(/\.(pdf|docx|doc)$/i, '.md');
            newFiles.push({
              id: generateId() + '-' + i,
              name: file.name.replace(/\.[^/.]+$/, ""),
@@ -546,70 +646,85 @@ const App: React.FC = () => {
            });
         }
       }
-      
       if (newFiles.length > 0) {
-        // Safe Deduplication and Update
         let combinedFiles: MarkdownFile[] = [];
-        
         setFiles(prev => {
            const existingPaths = new Set(prev.map(f => f.path || f.name));
            const uniqueNew = newFiles.filter(f => !existingPaths.has(f.path || f.name));
            combinedFiles = [...prev, ...uniqueNew];
            return combinedFiles;
         });
-        
-        setActiveFileId(newFiles[0].id);
-        
-        // Trigger indexing outside the state setter to avoid side-effects and double counting
-        // We pass the new files specifically to be indexed
-        if (combinedFiles.length > 0) {
-           handleIndexKnowledgeBase(combinedFiles);
-        }
-
+        setPrimaryFileId(newFiles[0].id);
+        if (combinedFiles.length > 0) handleIndexKnowledgeBase(combinedFiles);
         showToast(`${t.filesLoaded}: ${newFiles.length}`);
-      } else {
-        showToast(t.noFilesFound);
-      }
-    } catch (e: any) {
-       showToast(e.message, true);
-    } finally {
-       setAiState(prev => ({ ...prev, isThinking: false, message: null }));
-    }
+      } else { showToast(t.noFilesFound); }
+    } catch (e: any) { showToast(e.message, true); } finally { setAiState(prev => ({ ...prev, isThinking: false, message: null })); }
   };
 
-  const handleImportPdf = async (file: File) => {
+  const handleImportFile = async (file: File) => {
     setAiState({ isThinking: true, message: t.processingFile, error: null });
     try {
-      const mdContent = await processPdfFile(file, aiConfig.apiKey);
-      const newFile: MarkdownFile = {
-        id: generateId(),
-        name: file.name.replace('.pdf', ''),
-        content: mdContent,
-        lastModified: Date.now(),
-        path: file.name.replace('.pdf', '.md')
-      };
+      // 1. Extract content
+      let content = "";
+      if (file.name.toLowerCase().endsWith('.pdf')) {
+          content = await processPdfFile(file, aiConfig.apiKey);
+      } else {
+          content = await extractTextFromFile(file, aiConfig.apiKey);
+      }
       
-      let updatedList: MarkdownFile[] = [];
-      setFiles(prev => {
-        if (prev.some(f => (f.path || f.name) === newFile.path)) {
-            updatedList = prev;
-            return prev;
-        }
-        updatedList = [...prev, newFile];
-        return updatedList;
-      });
+      // Determine path/name
+      const isDoc = file.name.match(/\.(pdf|docx|doc)$/i);
+      const path = isDoc ? file.name.replace(/\.(pdf|docx|doc)$/i, '.md') : file.name;
+      const name = file.name.replace(/\.[^/.]+$/, "");
+
+      // Access latest files via ref to avoid closure staleness
+      const currentFiles = filesRef.current;
+      const existingIndex = currentFiles.findIndex(f => (f.path || f.name) === path);
       
-      // Index outside state setter
-      if (updatedList.length > 0) {
-         handleIndexKnowledgeBase(updatedList);
+      let finalFileId = generateId();
+      let updatedFileList = [];
+
+      if (existingIndex !== -1) {
+          // Overwrite existing
+          const existingFile = currentFiles[existingIndex];
+          finalFileId = existingFile.id; // Preserve ID
+          
+          const updatedFile = {
+              ...existingFile,
+              content: content,
+              lastModified: Date.now()
+          };
+          
+          updatedFileList = [...currentFiles];
+          updatedFileList[existingIndex] = updatedFile;
+          
+          // Re-index this specific file
+          handleIndexKnowledgeBase([updatedFile]);
+      } else {
+          // Create new
+          const newFile: MarkdownFile = {
+            id: finalFileId,
+            name: name,
+            content: content,
+            lastModified: Date.now(),
+            path: path,
+            isLocal: false 
+          };
+          
+          updatedFileList = [...currentFiles, newFile];
+          
+          // Index new file
+          handleIndexKnowledgeBase([newFile]);
       }
 
-      setActiveFileId(newFile.id);
+      setFiles(updatedFileList);
+      setPrimaryFileId(finalFileId);
       showToast(t.importSuccess);
-    } catch (e: any) {
-      showToast(`${t.importFail}: ${e.message}`, true);
-    } finally {
-      setAiState(prev => ({ ...prev, isThinking: false, message: null }));
+      
+    } catch (e: any) { 
+        showToast(`${t.importFail}: ${e.message}`, true); 
+    } finally { 
+        setAiState(prev => ({ ...prev, isThinking: false, message: null })); 
     }
   };
 
@@ -628,21 +743,26 @@ const App: React.FC = () => {
              return;
          }
       }
-
+      if (file.name.toLowerCase().endsWith('.json')) {
+         const jsonQuiz = await parseJsonToQuiz(file);
+         if (jsonQuiz) {
+             const textContent = await extractTextFromFile(file, aiConfig.apiKey);
+             setQuizContext(textContent); 
+             setCurrentQuiz(jsonQuiz);
+             setViewMode(ViewMode.Quiz);
+             showToast(t.importSuccess);
+             setAiState(prev => ({ ...prev, isThinking: false, message: null }));
+             return;
+         }
+      }
       const textContent = await extractTextFromFile(file, aiConfig.apiKey);
       setQuizContext(textContent);
-      
       setAiState({ isThinking: true, message: t.analyzingQuiz, error: null });
       const quiz = await extractQuizFromRawContent(textContent, aiConfig);
-      
       setCurrentQuiz(quiz);
       setViewMode(ViewMode.Quiz);
       showToast(t.importSuccess);
-    } catch (e: any) {
-      showToast(`${t.importFail}: ${e.message}`, true);
-    } finally {
-      setAiState(prev => ({ ...prev, isThinking: false, message: null }));
-    }
+    } catch (e: any) { showToast(`${t.importFail}: ${e.message}`, true); } finally { setAiState(prev => ({ ...prev, isThinking: false, message: null })); }
   };
 
   const handleExport = () => {
@@ -658,9 +778,7 @@ const App: React.FC = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       showToast(`${t.download} Success`);
-    } catch (e) {
-      showToast("Export failed", true);
-    }
+    } catch (e) { showToast("Export failed", true); }
   };
 
   const handleGenerateMindMap = async () => {
@@ -670,11 +788,7 @@ const App: React.FC = () => {
       const mermaidCode = await generateMindMap(activeFile.content, aiConfig);
       setMindMapContent(mermaidCode);
       setViewMode(ViewMode.MindMap);
-    } catch (e: any) {
-      showToast(e.message, true);
-    } finally {
-      setAiState(prev => ({ ...prev, isThinking: false, message: null }));
-    }
+    } catch (e: any) { showToast(e.message, true); } finally { setAiState(prev => ({ ...prev, isThinking: false, message: null })); }
   };
 
   const handleGenerateQuiz = async () => {
@@ -692,239 +806,244 @@ const App: React.FC = () => {
     }
   };
 
-  const handleTextFormat = (startTag: string, endTag: string) => {
-      const textarea = editorRef.current;
-      if (!textarea) return;
-      
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      const content = activeFile.content;
-      
-      const selectedText = content.substring(start, end);
-      const newText = `${startTag}${selectedText}${endTag}`;
-      
-      const newContent = content.substring(0, start) + newText + content.substring(end);
-      
-      updateActiveFile(newContent);
-      
-      setTimeout(() => {
-          if (editorRef.current) {
-              editorRef.current.focus();
-              editorRef.current.setSelectionRange(start + startTag.length, end + startTag.length);
-          }
-      }, 0);
+  const handleAIPolish = async () => {
+    if (aiState.isThinking) return;
+    setAiState({ isThinking: true, message: t.polish + "...", error: null });
+    try {
+      const polished = await polishContent(activeFile.content, aiConfig);
+      updateActiveFile(polished);
+      showToast("Content Polished!");
+    } catch (e: any) { showToast(e.message, true); } finally { setAiState(prev => ({ ...prev, isThinking: false, message: null })); }
   };
   
-  // -- AI Actions Wrappers for Shortcuts --
-  const performPolish = async () => {
-     try {
-        saveSnapshot(); 
-        setAiState({ isThinking: true, message: "Polishing...", error: null });
-        const res = await polishContent(activeFile.content, aiConfig);
-        updateActiveFile(res);
-        showToast("Polished!");
-     } catch(e:any) { showToast(e.message, true); }
-     finally { setAiState(p => ({...p, isThinking: false, message: null})); }
-  };
-  
-  const performGraph = async () => {
-      try {
-        setAiState({ isThinking: true, message: "Analyzing Graph...", error: null });
-        const data = await generateKnowledgeGraph(files, aiConfig);
-        setGraphData(data);
-        setViewMode(ViewMode.Graph);
-     } catch(e:any) { showToast(e.message, true); }
-     finally { setAiState(p => ({...p, isThinking: false, message: null})); }
-  };
-  
-  const performSynthesize = async () => {
-     try {
-        setAiState({ isThinking: true, message: "Synthesizing Knowledge Base...", error: null });
-        const summary = await synthesizeKnowledgeBase(files, aiConfig);
-        const newFile: MarkdownFile = { id: generateId(), name: 'Master-Summary', content: summary, lastModified: Date.now(), path: 'Master-Summary.md' };
-        setFiles([...files, newFile]);
-        setActiveFileId(newFile.id);
-        setViewMode(ViewMode.Preview);
-     } catch(e:any) { showToast(e.message, true); }
-     finally { setAiState(p => ({...p, isThinking: false, message: null})); }
+  const handleBuildGraph = async () => {
+    if (aiState.isThinking) return;
+    setAiState({ isThinking: true, message: "Building Graph...", error: null });
+    try {
+      const data = await generateKnowledgeGraph(files, aiConfig);
+      setGraphData(data);
+      setViewMode(ViewMode.Graph);
+    } catch (e: any) { showToast(e.message, true); } finally { setAiState(prev => ({ ...prev, isThinking: false, message: null })); }
   };
 
-  const executeAiTool = async (toolName: string, args: any) => {
-    if (toolName === 'create_file') {
-      const newFile: MarkdownFile = {
-        id: generateId(),
-        name: args.filename.replace('.md', ''),
-        content: args.content,
-        lastModified: Date.now(),
-        path: args.filename
-      };
-      setFiles(prev => [...prev, newFile]);
-      return { success: true, message: `Created file ${args.filename}` };
-    }
-    if (toolName === 'update_file') {
-      let found = false;
-      const updated = files.map(f => {
-        if (f.name === args.filename.replace('.md', '') || f.name === args.filename) {
-          found = true;
-          return { ...f, content: args.content, lastModified: Date.now() };
+  // --- AGENTIC TOOL EXECUTION ---
+  const executeAiTool = async (name: string, args: any) => {
+    try {
+        console.log(`[App] Executing tool: ${name}`, args);
+        let currentFiles = filesRef.current;
+
+        if (name === 'list_files') {
+            const list = currentFiles.map(f => `- ${f.name} (${f.path || f.name})`).join('\n');
+            return list || "No files found.";
         }
-        return f;
-      });
-      if (found) {
-        setFiles(updated);
-        return { success: true, message: `Updated file ${args.filename}` };
-      }
-      return { success: false, message: "File not found" };
-    }
-    if (toolName === 'delete_file') {
-       const filtered = files.filter(f => f.name !== args.filename.replace('.md', '') && f.name !== args.filename);
-       if (filtered.length < files.length) {
-         setFiles(filtered);
-         return { success: true, message: `Deleted ${args.filename}` };
-       }
-       return { success: false, message: "File not found" };
-    }
 
-    console.log(`[MCP Injection] External Tool Called: ${toolName}`, args);
-    return { 
-      success: true, 
-      message: `[System] Tool '${toolName}' call captured (MCP Injection Mode). Args: ${JSON.stringify(args)}` 
-    };
+        if (name === 'read_file') {
+            const target = args.filename || args.path;
+            const file = currentFiles.find(f => (f.path || f.name) === target || f.name === target);
+            if (!file) return { error: `File '${target}' not found.` };
+            return file.content;
+        }
+
+        if (name === 'create_file') {
+             const { filename, content } = args;
+             if (currentFiles.some(f => (f.path || f.name) === filename || f.name === filename)) {
+                 return { error: `File '${filename}' already exists.` };
+             }
+             const newFile: MarkdownFile = {
+                 id: generateId(),
+                 name: filename.replace(/\.(md|txt)$/, ''),
+                 content: content || '',
+                 lastModified: Date.now(),
+                 path: filename
+             };
+             
+             const newFileList = [...currentFiles, newFile];
+             filesRef.current = newFileList; 
+             setFiles(newFileList);
+             return { success: true, message: `File '${filename}' created.` };
+        }
+
+        if (name === 'update_file') {
+             const { filename, content, mode } = args;
+             const fileIndex = currentFiles.findIndex(f => (f.path || f.name) === filename || f.name === filename);
+             
+             if (fileIndex === -1) {
+                 return { 
+                     error: `File '${filename}' not found. Cannot update.`, 
+                     hint: "File does not exist. Please use 'create_file' first." 
+                 };
+             }
+
+             const currentFile = currentFiles[fileIndex];
+             let newContent = content;
+
+             if (mode !== 'overwrite') {
+                 const originalContent = currentFile.content;
+                 const separator = (originalContent && !originalContent.endsWith('\n')) ? '\n' : '';
+                 newContent = originalContent + separator + content;
+             }
+
+             const updatedFile = { ...currentFile, content: newContent, lastModified: Date.now() };
+             const newFileList = [...currentFiles];
+             newFileList[fileIndex] = updatedFile;
+             filesRef.current = newFileList;
+             setFiles(newFileList);
+             return { success: true, message: `File '${filename}' updated successfully (mode: ${mode || 'append'}).` };
+        }
+
+        if (name === 'delete_file') {
+            const { filename } = args;
+             if (currentFiles.length <= 1) return { error: "Cannot delete the last file." };
+             const newFileList = currentFiles.filter(f => (f.path || f.name) !== filename && f.name !== filename);
+             if (newFileList.length === currentFiles.length) return { error: "File not found." };
+             
+             filesRef.current = newFileList;
+             setFiles(newFileList);
+             if (activeFileIdRef.current === currentFiles.find(f => f.name === filename)?.id) {
+                 setPrimaryFileId(newFileList[0].id);
+             }
+             return { success: true, message: `File '${filename}' deleted.` };
+        }
+
+        return { error: `Unknown tool: ${name}` };
+    } catch (e: any) {
+        return { error: e.message };
+    }
   };
 
-  const handleChatMessage = async (text: string) => {
+  const handleSendMessage = async (text: string) => {
     const userMsg: ChatMessage = { id: generateId(), role: 'user', content: text, timestamp: Date.now() };
     setChatMessages(prev => [...prev, userMsg]);
     
-    setAiState({ isThinking: true, message: "Indexing Knowledge Base...", error: null });
-    await handleIndexKnowledgeBase();
-    
-    setAiState({ isThinking: true, message: "Searching Knowledge Base...", error: null });
-    const relevantContext = await vectorStore.search(text, aiConfig);
-    
+    // RAG Retrieval
+    let ragContext = "";
+    if (vectorStore.getStats().totalChunks > 0) {
+        setAiState({ isThinking: true, message: "Searching Knowledge Base...", error: null });
+        try {
+            ragContext = await vectorStore.search(text, aiConfig);
+        } catch (e) {
+            console.warn("RAG search failed", e);
+        }
+    }
+
     setAiState({ isThinking: true, message: "Thinking...", error: null });
 
     try {
-      const response = await generateAIResponse(
-        text, 
-        aiConfig, 
-        "You are NeonMark AI. You can edit files using tools. If asked about user's notes, use the provided Knowledge Base context.",
-        false,
-        [], 
-        executeAiTool,
-        relevantContext 
+      const responseText = await generateAIResponse(
+          text, 
+          aiConfig, 
+          "You are a helpful AI assistant embedded in a Markdown editor. You can read, create, update, and delete files.",
+          false,
+          [activeFile], // Context
+          executeAiTool, // Agentic Capability
+          ragContext // Flexible Reference Context
       );
-      
-      const botMsg: ChatMessage = { id: generateId(), role: 'assistant', content: response, timestamp: Date.now() };
-      setChatMessages(prev => [...prev, botMsg]);
-    } catch (err: any) {
-      const errorMsg: ChatMessage = { id: generateId(), role: 'assistant', content: `**Error**: ${err.message}`, timestamp: Date.now() };
-      setChatMessages(prev => [...prev, errorMsg]);
+
+      const aiMsg: ChatMessage = { id: generateId(), role: 'assistant', content: responseText, timestamp: Date.now() };
+      setChatMessages(prev => [...prev, aiMsg]);
+    } catch (e: any) {
+      setAiState(prev => ({ ...prev, error: e.message }));
+      setChatMessages(prev => [...prev, { id: generateId(), role: 'assistant', content: `Error: ${e.message}`, timestamp: Date.now() }]);
     } finally {
-      setAiState({ isThinking: false, message: null, error: null });
+      setAiState(prev => ({ ...prev, isThinking: false, message: null }));
     }
-  };
-
-  const handleCompactChat = async () => {
-     if (chatMessages.length <= 3) {
-         showToast("Not enough history to compact.", true);
-         return;
-     }
-
-     setAiState({ isThinking: true, message: "Summarizing conversation...", error: null });
-     try {
-         const compacted = await compactConversation(chatMessages, aiConfig);
-         setChatMessages(compacted);
-         showToast("Context compacted.");
-     } catch(e: any) {
-         showToast(e.message, true);
-     } finally {
-         setAiState(prev => ({ ...prev, isThinking: false, message: null }));
-     }
-  };
-
-  // --- Keyboard Shortcuts Logic ---
-  const handleShortcutCommand = (actionId: string) => {
-    switch (actionId) {
-      case 'save':
-        // Explicit save to disk
-        if (activeFile.isLocal && activeFile.handle) {
-          saveFileToDisk(activeFile).then(() => showToast('File Saved', false));
-        } else {
-          showToast('Saved locally', false);
-        }
-        break;
-      case 'toggle_sidebar':
-        setIsSidebarOpen(prev => !prev);
-        break;
-      case 'toggle_chat':
-        setIsChatOpen(prev => !prev);
-        break;
-      case 'open_settings':
-        setIsSettingsOpen(true);
-        break;
-      case 'new_file':
-        handleCreateItem('file', 'Untitled', '');
-        break;
-      case 'ai_polish':
-        if (!aiState.isThinking) performPolish();
-        break;
-      case 'build_graph':
-        if (!aiState.isThinking) performGraph();
-        break;
-      default:
-        console.warn(`Unknown action ID: ${actionId}`);
-    }
-  };
-
-  useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-       // Construct key string from event
-       const parts = [];
-       if (e.ctrlKey) parts.push('Ctrl');
-       if (e.metaKey) parts.push('Cmd');
-       if (e.altKey) parts.push('Alt');
-       if (e.shiftKey) parts.push('Shift');
-       
-       let key = e.key;
-       if (key === ' ') key = 'Space';
-       if (key.length === 1) key = key.toUpperCase();
-       
-       // Don't add key if it is a modifier
-       if (!['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
-         parts.push(key);
-       }
-       
-       const combo = parts.join('+');
-       
-       const match = shortcuts.find(s => s.keys === combo);
-       if (match) {
-         e.preventDefault();
-         handleShortcutCommand(match.actionId);
-       }
-    };
-
-    window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [shortcuts, activeFile, aiState.isThinking]); // Dependencies crucial for actions to access latest state
-
-  const handleUpdateShortcut = (id: string, keys: string) => {
-     setShortcuts(prev => prev.map(s => s.id === id ? { ...s, keys } : s));
   };
   
-  const handleResetShortcuts = () => {
-    setShortcuts(DEFAULT_SHORTCUTS);
+  if (!isAuthenticated) {
+    return <LoginScreen onLogin={() => setIsAuthenticated(true)} />;
+  }
+
+  // Helper to render the actual pane content
+  const renderPaneContent = (fileId: string, paneType: PaneType) => {
+    const file = files.find(f => f.id === fileId) || DEFAULT_FILE;
+    const isPrimary = paneType === 'primary';
+    const editorRef = isPrimary ? primaryEditorRef : secondaryEditorRef;
+    const previewRef = isPrimary ? primaryPreviewRef : secondaryPreviewRef;
+    const scrollHandlerEditor = isPrimary ? handlePrimaryEditorScroll : handleSecondaryEditorScroll;
+    const scrollHandlerPreview = isPrimary ? handlePrimaryPreviewScroll : handleSecondaryPreviewScroll;
+
+    // Use a wrapper to apply focus styles
+    const isActive = activePane === paneType;
+    const focusClass = isActive ? "ring-2 ring-cyan-500/50 z-10" : "opacity-80 hover:opacity-100";
+
+    return (
+        <div 
+          className={`flex-1 relative flex flex-col h-full overflow-hidden transition-all duration-200 ${focusClass} bg-paper-50 dark:bg-cyber-900`}
+          onClick={() => setActivePane(paneType)}
+        >
+            {/* Header / close button for secondary */}
+            {paneType === 'secondary' && (
+                <div className="absolute top-2 right-4 z-20">
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); setSecondaryFileId(null); setActivePane('primary'); }}
+                        className="p-1 bg-red-100 hover:bg-red-200 text-red-600 rounded-full shadow-sm"
+                        title="Close Split View"
+                    >
+                        <X size={14} />
+                    </button>
+                </div>
+            )}
+            
+            <div className="flex-1 relative overflow-hidden min-h-0 min-w-0">
+                {viewMode === ViewMode.Editor && (
+                  <Editor 
+                    ref={editorRef}
+                    content={file.content} 
+                    onChange={updateActiveFile} 
+                    onUndo={handleUndo}
+                    onRedo={handleRedo}
+                    onScroll={scrollHandlerEditor}
+                  />
+                )}
+                {viewMode === ViewMode.Preview && <Preview ref={previewRef} content={file.content} />}
+                {viewMode === ViewMode.Split && (
+                  <div className="grid grid-cols-2 h-full overflow-hidden">
+                    <div className="h-full overflow-hidden min-h-0 min-w-0">
+                        <Editor 
+                            ref={editorRef}
+                            content={file.content} 
+                            onChange={updateActiveFile}
+                            onUndo={handleUndo}
+                            onRedo={handleRedo}
+                            onScroll={scrollHandlerEditor}
+                        />
+                    </div>
+                    <div className="h-full overflow-hidden min-h-0 min-w-0">
+                        <Preview 
+                            ref={previewRef} 
+                            content={file.content}
+                            onScroll={scrollHandlerPreview}
+                        />
+                    </div>
+                  </div>
+                )}
+                {viewMode === ViewMode.Graph && <KnowledgeGraph data={graphData} theme={themes.find(t => t.id === activeThemeId)?.type || 'dark'} />}
+                {viewMode === ViewMode.MindMap && <MindMap content={mindMapContent} theme={themes.find(t => t.id === activeThemeId)?.type || 'dark'} language={lang} />}
+                {viewMode === ViewMode.Quiz && currentQuiz && (
+                  <QuizPanel 
+                    quiz={currentQuiz} 
+                    aiConfig={aiConfig} 
+                    theme={themes.find(t => t.id === activeThemeId)?.type || 'dark'} 
+                    onClose={() => setViewMode(ViewMode.Editor)} 
+                    contextContent={quizContext}
+                    language={lang}
+                  />
+                )}
+             </div>
+             {/* File Name Label Overlay */}
+             <div className="absolute bottom-2 left-4 text-xs font-mono px-2 py-0.5 bg-paper-200/80 dark:bg-cyber-800/80 rounded backdrop-blur-sm pointer-events-none text-slate-500">
+                {file.name}
+             </div>
+        </div>
+    );
   };
 
-  const currentThemeObj = themes.find(t => t.id === activeThemeId) || themes[0];
-
   return (
-    <div className="flex w-full h-screen bg-paper-50 dark:bg-cyber-900 text-slate-800 dark:text-slate-200 overflow-hidden transition-colors duration-300">
-      
+    <div className={`flex h-screen w-full bg-paper-50 dark:bg-cyber-900 transition-colors duration-300 ${activeThemeId}`}>
       <Sidebar 
-        files={files}
-        activeFileId={activeFileId}
-        onSelectFile={setActiveFileId}
+        files={files} 
+        activeFileId={activeFileId} 
+        onSelectFile={handleSelectFile} 
         onCreateItem={handleCreateItem}
         onDeleteFile={handleDeleteFile}
         onMoveItem={handleMoveItem}
@@ -932,133 +1051,106 @@ const App: React.FC = () => {
         onCloseMobile={() => setIsSidebarOpen(false)}
         onOpenFolder={handleOpenFolder}
         onImportFolderFiles={handleImportFolderFiles}
-        onImportPdf={handleImportPdf}
+        onImportFile={handleImportFile}
         onImportQuiz={handleImportQuiz}
         language={lang}
         ragStats={ragStats}
         onRefreshIndex={() => handleIndexKnowledgeBase()}
       />
+      
+      <div className="flex-1 flex flex-col h-full relative overflow-hidden transition-all duration-300">
+         <Toolbar 
+           viewMode={viewMode}
+           setViewMode={setViewMode}
+           onClear={() => updateActiveFile('')}
+           onExport={handleExport}
+           onAIPolish={handleAIPolish}
+           onAIExpand={() => {}}
+           onBuildGraph={handleBuildGraph}
+           onSynthesize={() => {}}
+           onGenerateMindMap={handleGenerateMindMap}
+           onGenerateQuiz={handleGenerateQuiz}
+           onFormatBold={() => {}}
+           onFormatItalic={() => {}}
+           onUndo={handleUndo}
+           onRedo={handleRedo}
+           isAIThinking={aiState.isThinking}
+           theme={themes.find(t => t.id === activeThemeId)?.type || 'dark'}
+           toggleTheme={toggleTheme}
+           toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+           toggleChat={() => setIsChatOpen(!isChatOpen)}
+           toggleSettings={() => setIsSettingsOpen(true)}
+           fileName={activeFile.name}
+           onRename={renameActiveFile}
+           activeProvider={aiConfig.provider}
+           language={lang}
+           isSplitView={!!secondaryFileId}
+           onToggleSplitView={handleToggleSplitView}
+           isDictating={isDictating}
+           onToggleDictation={toggleDictation}
+         />
+         
+         {/* Main Content Area: Handles Multi-Pane Logic */}
+         <div className="flex-1 flex overflow-hidden">
+             {/* Primary Pane */}
+             {renderPaneContent(primaryFileId, 'primary')}
 
-      <div className="flex-1 flex flex-col h-full overflow-hidden relative">
-        <Toolbar 
-          viewMode={viewMode} 
-          setViewMode={setViewMode} 
-          onClear={() => updateActiveFile('')}
-          onExport={handleExport}
-          onAIPolish={performPolish}
-          onAIExpand={async () => {
-              try {
-                saveSnapshot(); 
-                setAiState({ isThinking: true, message: "Expanding...", error: null });
-                const res = await expandContent(activeFile.content, aiConfig);
-                updateActiveFile(res);
-                showToast("Expanded!");
-             } catch(e:any) { showToast(e.message, true); }
-             finally { setAiState(p => ({...p, isThinking: false, message: null})); }
-          }}
-          onBuildGraph={performGraph}
-          onSynthesize={performSynthesize}
-          onGenerateMindMap={handleGenerateMindMap}
-          onGenerateQuiz={handleGenerateQuiz}
-          onFormatBold={() => handleTextFormat('**', '**')}
-          onFormatItalic={() => handleTextFormat('*', '*')}
-          onUndo={handleUndo}
-          onRedo={handleRedo}
-          isAIThinking={aiState.isThinking}
-          theme={currentThemeObj?.type || 'dark'}
-          toggleTheme={toggleTheme}
-          toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-          toggleChat={() => setIsChatOpen(!isChatOpen)}
-          toggleSettings={() => setIsSettingsOpen(true)}
-          fileName={activeFile.name}
-          onRename={renameActiveFile}
-          activeProvider={aiConfig.provider}
-          language={lang}
-        />
-
-        <div className="flex-1 flex overflow-hidden relative">
-          
-          {viewMode === ViewMode.Graph && (
-            <KnowledgeGraph 
-              key={activeThemeId}
-              data={graphData} 
-              theme={currentThemeObj?.type || 'dark'} 
-              onNodeClick={handleNodeClick} 
-            />
-          )}
-
-          {viewMode === ViewMode.Quiz && currentQuiz && (
-            <QuizPanel 
-              quiz={currentQuiz} 
-              aiConfig={aiConfig} 
-              theme={currentThemeObj?.type || 'dark'} 
-              onClose={() => setViewMode(ViewMode.Editor)}
-              contextContent={quizContext || activeFile.content}
-              language={lang}
-            />
-          )}
-
-          {viewMode === ViewMode.MindMap && (
-            <MindMap 
-              key={activeThemeId}
-              content={mindMapContent} 
-              theme={currentThemeObj?.type || 'dark'} 
-              language={lang} 
-            />
-          )}
-
-          {(viewMode === ViewMode.Editor || viewMode === ViewMode.Split) && (
-             <div className={`${viewMode === ViewMode.Split ? 'w-1/2' : 'w-full'} h-full border-r border-paper-200 dark:border-cyber-700`}>
-                <Editor 
-                  ref={editorRef} 
-                  content={activeFile?.content || ''} 
-                  onChange={updateActiveFile}
-                  onUndo={handleUndo}
-                  onRedo={handleRedo}
-                />
+             {/* Secondary Pane (Split View) */}
+             {secondaryFileId && (
+                <>
+                    <div className="w-1 bg-paper-200 dark:bg-cyber-700 cursor-col-resize hover:bg-cyan-500 transition-colors" />
+                    {renderPaneContent(secondaryFileId, 'secondary')}
+                </>
+             )}
+         </div>
+         
+         {/* Toast / Status Bar */}
+         {aiState.message && (
+             <div className="absolute bottom-6 left-1/2 -translate-y-1/2 z-50 bg-slate-800 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 text-sm animate-fadeIn">
+                 {aiState.error ? <AlertCircle size={16} className="text-red-400" /> : <CheckCircle2 size={16} className="text-emerald-400" />}
+                 <span>{aiState.message}</span>
              </div>
-          )}
-          
-          {(viewMode === ViewMode.Preview || viewMode === ViewMode.Split) && (
-             <div className={`${viewMode === ViewMode.Split ? 'w-1/2' : 'w-full'} h-full overflow-hidden`}>
-                <Preview content={activeFile?.content || ''} />
+         )}
+         {aiState.error && !aiState.message && (
+             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 bg-red-900 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 text-sm animate-fadeIn border border-red-700">
+                 <AlertCircle size={16} />
+                 <span>{aiState.error}</span>
              </div>
-          )}
-
-          <ChatPanel 
-            isOpen={isChatOpen} 
-            onClose={() => setIsChatOpen(false)}
-            messages={chatMessages}
-            onSendMessage={handleChatMessage}
-            onClearChat={() => setChatMessages([])}
-            onCompactChat={handleCompactChat}
-            aiState={aiState}
-            language={lang}
-          />
-
-          {(aiState.message || aiState.error) && (
-            <div className={`absolute bottom-6 left-1/2 transform -translate-x-1/2 px-4 py-3 rounded-xl shadow-2xl backdrop-blur-xl border flex items-center gap-3 z-50 animate-bounce-in ${aiState.error ? 'bg-red-500/20 border-red-500/50 text-red-600 dark:text-red-200' : 'bg-cyan-500/20 border-cyan-500/50 text-cyan-800 dark:text-cyan-200'}`}>
-              {aiState.error ? <AlertCircle size={20} /> : <CheckCircle2 size={20} />}
-              <span className="text-sm font-medium">{aiState.message || aiState.error}</span>
-            </div>
-          )}
-        </div>
+         )}
       </div>
       
+      <ChatPanel 
+        isOpen={isChatOpen} 
+        onClose={() => setIsChatOpen(false)}
+        messages={chatMessages}
+        onSendMessage={handleSendMessage}
+        onClearChat={() => setChatMessages([])}
+        onCompactChat={async () => {
+             setAiState({ isThinking: true, message: "Summarizing history...", error: null });
+             try {
+                const compacted = await compactConversation(chatMessages, aiConfig);
+                setChatMessages(compacted);
+             } catch(e: any) { showToast(e.message, true); }
+             finally { setAiState({ isThinking: false, message: null, error: null }); }
+        }}
+        aiState={aiState}
+        language={lang}
+      />
+
       <AISettingsModal 
         isOpen={isSettingsOpen} 
         onClose={() => setIsSettingsOpen(false)} 
-        config={aiConfig}
-        onSave={(c) => setAiConfig(c)}
+        config={aiConfig} 
+        onSave={setAiConfig}
         themes={themes}
         activeThemeId={activeThemeId}
         onSelectTheme={handleThemeChange}
-        onImportTheme={(t) => { saveCustomTheme(t); setThemes(getAllThemes()); handleThemeChange(t.id); }}
-        onDeleteTheme={(id) => { deleteCustomTheme(id); setThemes(getAllThemes()); if(activeThemeId === id) handleThemeChange(getAllThemes()[0].id); }}
+        onImportTheme={(t) => saveCustomTheme(t)}
+        onDeleteTheme={(id) => { deleteCustomTheme(id); setThemes(prev => prev.filter(t => t.id !== id)); }}
         language={lang}
         shortcuts={shortcuts}
-        onUpdateShortcut={handleUpdateShortcut}
-        onResetShortcuts={handleResetShortcuts}
+        onUpdateShortcut={(id, keys) => setShortcuts(prev => prev.map(s => s.id === id ? { ...s, keys } : s))}
+        onResetShortcuts={() => setShortcuts(DEFAULT_SHORTCUTS)}
       />
     </div>
   );

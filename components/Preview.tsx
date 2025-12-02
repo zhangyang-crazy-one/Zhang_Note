@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+
+import React, { useState, useRef, useEffect, useMemo, forwardRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -11,6 +12,7 @@ import mermaid from 'mermaid';
 // --- Types ---
 interface PreviewProps {
   content: string;
+  onScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
 }
 
 // --- Utils ---
@@ -229,7 +231,7 @@ const EnhancedCodeBlock = ({ children, className, inline, ...props }: any) => {
 };
 
 
-export const Preview: React.FC<PreviewProps> = ({ content }) => {
+export const Preview = forwardRef<HTMLDivElement, PreviewProps>(({ content, onScroll }, ref) => {
   const [renderHtml, setRenderHtml] = useState(false);
 
   // Simple heuristic to detect if the content contains HTML tags
@@ -260,7 +262,11 @@ export const Preview: React.FC<PreviewProps> = ({ content }) => {
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+      <div 
+        ref={ref} 
+        onScroll={onScroll} 
+        className="flex-1 overflow-y-auto p-8 custom-scrollbar"
+      >
         <div className="prose prose-lg max-w-none dark:prose-invert">
           <ReactMarkdown 
             remarkPlugins={[remarkGfm, remarkMath]} 
@@ -283,4 +289,6 @@ export const Preview: React.FC<PreviewProps> = ({ content }) => {
       </div>
     </div>
   );
-};
+});
+
+Preview.displayName = 'Preview';

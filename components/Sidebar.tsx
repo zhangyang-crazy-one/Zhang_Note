@@ -1,5 +1,4 @@
 
-
 import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   FileText, Plus, Trash2, FolderOpen, Search, X, FolderInput, 
@@ -21,7 +20,7 @@ interface SidebarProps {
   onCloseMobile: () => void;
   onOpenFolder: () => Promise<void>;
   onImportFolderFiles?: (files: FileList) => void;
-  onImportPdf: (file: File) => void;
+  onImportFile: (file: File) => void;
   onImportQuiz?: (file: File) => void;
   language?: Language;
   ragStats?: RAGStats;
@@ -211,7 +210,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   onOpenFolder,
   onImportFolderFiles,
-  onImportPdf,
+  onImportFile,
   onImportQuiz,
   language = 'en',
   ragStats,
@@ -260,7 +259,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       }
   }, [creationModal.isOpen]);
 
-  const pdfInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const dirInputRef = useRef<HTMLInputElement>(null);
   const quizInputRef = useRef<HTMLInputElement>(null);
   const filesInputRef = useRef<HTMLInputElement>(null);
@@ -450,9 +449,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [fileTree, expandedFolders, searchQuery]);
 
 
-  const handlePdfUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) onImportPdf(e.target.files[0]);
-    if (pdfInputRef.current) pdfInputRef.current.value = '';
+  const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) onImportFile(e.target.files[0]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleQuizUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -585,170 +584,189 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
         </div>
 
-        {/* Search Bar Fixed Position - Only show when Files tab is active */}
+        {/* Search Bar - Only show when Files tab is active */}
         {activeTab === 'files' && (
-            <div className="p-3 border-b border-paper-200 dark:border-cyber-700 bg-white dark:bg-cyber-900 shrink-0">
-               <div className="relative">
-                   <input 
-                     type="text" 
-                     placeholder="Search files..." 
-                     value={searchQuery}
-                     onChange={(e) => setSearchQuery(e.target.value)}
-                     className="w-full pl-8 pr-8 py-1.5 bg-paper-100 dark:bg-cyber-800 border border-paper-200 dark:border-cyber-700 rounded text-xs focus:outline-none focus:border-cyan-500 transition-colors"
-                   />
-                   <Search size={12} className="absolute left-2.5 top-2.5 text-slate-400" />
-                   {searchQuery && (
-                       <button onClick={() => setSearchQuery('')} className="absolute right-2 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-                           <X size={12} />
-                       </button>
-                   )}
-               </div>
+            <div className="p-2 border-b border-paper-200 dark:border-cyber-700 bg-paper-50 dark:bg-cyber-800/50 shrink-0">
+                <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                    <input 
+                        type="text" 
+                        placeholder="Search files..." 
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-3 py-1.5 text-sm bg-white dark:bg-cyber-900 border border-paper-200 dark:border-cyber-600 rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-500 text-slate-800 dark:text-slate-200 placeholder-slate-400"
+                    />
+                    {searchQuery && (
+                        <button 
+                            onClick={() => setSearchQuery('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                        >
+                            <X size={12} />
+                        </button>
+                    )}
+                </div>
             </div>
         )}
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
-          
-          {/* FILES TAB */}
-          {activeTab === 'files' && (
-            <>
-               <div className="grid grid-cols-2 gap-2 mb-3">
-                 <button onClick={() => handleOpenCreation('file')} className="flex items-center justify-center gap-1.5 px-3 py-2 bg-cyan-500 hover:bg-cyan-600 text-white rounded-lg transition-colors shadow-lg shadow-cyan-500/20 text-xs font-medium" title="New File">
-                   <Plus size={14} /> {t.newFile}
-                 </button>
-                 
-                 <button onClick={() => handleOpenCreation('folder')} className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white dark:bg-cyber-900 border border-paper-200 dark:border-cyber-700 rounded-lg text-slate-600 dark:text-slate-300 hover:border-amber-400 transition-colors text-xs font-medium" title="New Folder">
-                   <FolderInput size={14} className="text-amber-500" /> Folder
-                 </button>
-
-                 <button onClick={() => filesInputRef.current?.click()} className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white dark:bg-cyber-900 border border-paper-200 dark:border-cyber-700 rounded-lg text-slate-600 dark:text-slate-300 hover:border-cyan-400 transition-colors text-xs font-medium">
-                   <Upload size={14} /> {t.importFiles}
-                 </button>
-
-                 <button onClick={handleOpenFolderClick} className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-200 dark:bg-cyber-900 hover:bg-slate-300 dark:hover:bg-cyber-700 text-slate-700 dark:text-slate-300 rounded-lg transition-colors text-xs font-medium">
-                   <FolderInput size={14} /> {t.openDir}
-                 </button>
-                 
-                 <button onClick={() => quizInputRef.current?.click()} className="col-span-2 flex items-center justify-center gap-1.5 px-3 py-2 bg-white dark:bg-cyber-900 border border-paper-200 dark:border-cyber-700 rounded-lg text-slate-600 dark:text-slate-300 hover:border-violet-400 transition-colors text-xs font-medium">
-                      <GraduationCap size={14} className="text-violet-400" /> {t.quiz}
+        {/* Main Content Area */}
+        <div 
+            className="flex-1 overflow-y-auto custom-scrollbar relative p-1"
+            onDragOver={(e) => handleDragOver(e, null)}
+            onDrop={(e) => handleDrop(e, null)}
+        >
+          {activeTab === 'files' ? (
+            <div className={`min-h-full ${isRootDropTarget ? 'bg-cyan-100/30 dark:bg-cyan-900/20' : ''}`}>
+               {visibleFlatNodes.length === 0 ? (
+                   <div className="flex flex-col items-center justify-center h-40 text-slate-400 text-xs text-center p-4">
+                       <FolderOpen size={32} className="mb-2 opacity-50" />
+                       <p>{searchQuery ? "No matching files" : t.noFilesFound}</p>
+                   </div>
+               ) : (
+                   visibleFlatNodes.map(node => (
+                       <FileTreeRow 
+                          key={node.id} 
+                          node={node}
+                          activeFileId={activeFileId}
+                          onSelect={onSelectFile}
+                          onToggle={toggleFolder}
+                          onDelete={onDeleteFile}
+                          onRequestCreate={handleOpenCreation}
+                          onDragStart={handleDragStart}
+                          onDragOver={handleDragOver}
+                          onDrop={handleDrop}
+                          isDropTarget={dragOverNodeId === node.id}
+                       />
+                   ))
+               )}
+               {/* Quick Create at Root */}
+               <div className="mt-2 px-2 pt-2 border-t border-paper-200 dark:border-cyber-700/50">
+                  <button 
+                    onClick={() => handleOpenCreation('file', '')}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-500 hover:text-cyan-600 hover:bg-paper-100 dark:hover:bg-cyber-800 rounded transition-colors"
+                  >
+                      <Plus size={14} /> New File at Root
+                  </button>
+                  <button 
+                    onClick={() => handleOpenCreation('folder', '')}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-500 hover:text-amber-600 hover:bg-paper-100 dark:hover:bg-cyber-800 rounded transition-colors"
+                  >
+                      <FolderInput size={14} /> New Folder at Root
                   </button>
                </div>
-               
-               {/* Hidden Inputs */}
-               <input type="file" accept=".pdf" ref={pdfInputRef} className="hidden" onChange={handlePdfUpload} />
-               <input type="file" accept=".csv,.pdf,.md,.txt,.docx,.doc" ref={quizInputRef} className="hidden" onChange={handleQuizUpload} />
-               <input type="file" accept=".md,.markdown,.txt,.csv,.pdf,.docx,.doc" multiple ref={filesInputRef} className="hidden" onChange={handleFilesUpload} />
-               <input type="file" ref={dirInputRef} className="hidden" onChange={handleDirUpload} multiple {...({ webkitdirectory: "", directory: "" } as any)} />
-
-               {/* Tree */}
-               <div className="pb-10 min-h-[100px] flex flex-col">
-                   {visibleFlatNodes.length === 0 ? (
-                       <div className="text-center py-8 text-slate-400 text-xs italic">
-                           {searchQuery ? 'No matching files' : 'No files open'}
-                       </div>
-                   ) : (
-                       visibleFlatNodes.map((node) => (
-                           <FileTreeRow 
-                               key={node.id} 
-                               node={node} 
-                               activeFileId={activeFileId} 
-                               onSelect={onSelectFile}
-                               onDelete={onDeleteFile}
-                               onToggle={toggleFolder}
-                               onRequestCreate={handleOpenCreation}
-                               onDragStart={handleDragStart}
-                               onDragOver={handleDragOver}
-                               onDrop={handleDrop}
-                               isDropTarget={dragOverNodeId === node.id}
-                           />
-                       ))
-                   )}
-                   
-                   {/* Root Drop Zone - Only visible when dragging */}
-                   <div 
-                     className={`flex-1 border-2 border-dashed rounded-lg flex items-center justify-center text-xs text-slate-400 transition-all min-h-[60px] mt-4 ${isRootDropTarget ? 'border-cyan-400 bg-cyan-50 dark:bg-cyan-900/20' : 'border-transparent'}`}
-                     onDragOver={(e) => handleDragOver(e, null)}
-                     onDrop={(e) => handleDrop(e, null)}
-                   >
-                       {isRootDropTarget ? "Drop to Root Directory" : ""}
-                   </div>
-               </div>
-            </>
-          )}
-
-          {/* OUTLINE TAB */}
-          {activeTab === 'outline' && (
-            <div className="space-y-0.5">
+            </div>
+          ) : (
+            <div className="p-4">
               {outline.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-10 text-slate-400 text-center opacity-60">
-                   <AlignLeft size={32} className="mb-2" />
-                   <p className="text-xs">No headings found</p>
+                <div className="text-center text-slate-400 text-xs mt-10">
+                  <AlignLeft size={32} className="mx-auto mb-2 opacity-50" />
+                  <p>No headings found in current file</p>
                 </div>
               ) : (
-                outline.map((item, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => {
-                        const elements = document.querySelectorAll(`h${item.level}`);
-                        if(elements.length > 0) elements[Math.min(idx, elements.length-1)]?.scrollIntoView({behavior: 'smooth'});
-                    }}
-                    className="w-full text-left py-1 px-2 rounded hover:bg-paper-200 dark:bg-cyber-900 text-slate-600 dark:text-slate-300 transition-colors flex items-center gap-2 group"
-                    style={{ paddingLeft: `${(item.level - 1) * 12 + 4}px` }}
-                  >
-                    <span className="text-[10px] opacity-30 font-mono group-hover:opacity-100 transition-opacity">H{item.level}</span>
-                    <span className="text-xs truncate">{item.text}</span>
-                  </button>
-                ))
+                <div className="space-y-1">
+                  {outline.map((item, idx) => (
+                    <div 
+                      key={idx}
+                      className="text-sm py-1 px-2 hover:bg-paper-200 dark:hover:bg-cyber-700 rounded cursor-pointer text-slate-600 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors truncate"
+                      style={{ paddingLeft: `${(item.level - 1) * 12 + 8}px` }}
+                      onClick={() => {
+                          // Simple scroll to line logic
+                          // Ideally this would use an Editor ref to scroll to line
+                      }}
+                    >
+                      {item.text}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}
         </div>
         
-        {/* RAG Status */}
+        {/* RAG Status Footer */}
         {ragStats && (
-            <div className="mt-auto mb-2 mx-2 p-3 bg-white dark:bg-cyber-900 rounded-lg border border-paper-200 dark:border-cyber-700 shadow-sm transition-all duration-300">
-                <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                        <Database size={12} className="text-cyan-500" /> Knowledge Base
+            <div className="px-3 py-2 border-t border-paper-200 dark:border-cyber-700 bg-paper-50 dark:bg-cyber-900/80 text-[10px] flex items-center justify-between shrink-0">
+                <div className="flex flex-col">
+                    <span className="font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                        <Database size={10} /> Knowledge Base
                     </span>
-                    <div className="flex items-center gap-2">
-                        {ragStats.isIndexing && <Loader2 size={12} className="animate-spin text-cyan-500" />}
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); onRefreshIndex?.(); }}
-                            className="p-1 hover:bg-paper-100 dark:hover:bg-cyber-800 rounded-md text-slate-400 hover:text-cyan-500 transition-colors"
-                            title="Re-index Knowledge Base"
-                            disabled={ragStats.isIndexing}
-                        >
-                            <RefreshCw size={12} className={ragStats.isIndexing ? 'animate-spin' : ''} />
-                        </button>
-                    </div>
+                    <span className="text-slate-500">
+                        {ragStats.indexedFiles}/{ragStats.totalFiles} indexed ({ragStats.totalChunks} chunks)
+                    </span>
                 </div>
-                
-                <div className="space-y-1.5">
-                    <div className="flex justify-between text-[10px] text-slate-500 dark:text-slate-400">
-                        <span>Files Indexed</span>
-                        <span className="font-mono">{ragStats.indexedFiles} / {ragStats.totalFiles}</span>
-                    </div>
-                    <div className="w-full h-1 bg-paper-100 dark:bg-cyber-800 rounded-full overflow-hidden">
-                        <div 
-                        className="h-full bg-cyan-500 transition-all duration-300" 
-                        style={{ width: `${ragStats.totalFiles > 0 ? (ragStats.indexedFiles / ragStats.totalFiles) * 100 : 0}%` }}
-                        />
-                    </div>
-                    
-                    <div className="flex justify-between text-[10px] text-slate-500 dark:text-slate-400 pt-1">
-                        <span>Total Chunks</span>
-                        <span className="font-mono">{ragStats.totalChunks}</span>
-                    </div>
-                </div>
+                <button 
+                    onClick={onRefreshIndex}
+                    disabled={ragStats.isIndexing}
+                    className={`p-1.5 rounded hover:bg-paper-200 dark:hover:bg-cyber-700 transition-colors ${ragStats.isIndexing ? 'animate-spin text-cyan-500' : 'text-slate-400'}`}
+                    title="Re-index Knowledge Base"
+                >
+                    {ragStats.isIndexing ? <Loader2 size={12} /> : <RefreshCw size={12} />}
+                </button>
             </div>
         )}
 
-        {/* Footer */}
-        <div className="p-2 border-t border-paper-200 dark:border-cyber-700 bg-paper-50 dark:bg-cyber-900/50 text-[10px] text-slate-400 text-center flex justify-between items-center px-4">
-           <span>{files.length} Files</span>
-           <span>NeonMark Studio</span>
+        {/* Action Footer */}
+        <div className="p-2 border-t border-paper-200 dark:border-cyber-700 bg-paper-100 dark:bg-cyber-800 shrink-0">
+          <div className="grid grid-cols-4 gap-1">
+            <button 
+              onClick={() => handleOpenCreation('file', '')}
+              className="flex flex-col items-center justify-center p-2 rounded-lg hover:bg-white dark:hover:bg-cyber-700 text-slate-500 hover:text-cyan-600 transition-all gap-1"
+              title={t.newFile}
+            >
+              <Plus size={18} />
+            </button>
+            <button 
+              onClick={handleOpenFolderClick}
+              className="flex flex-col items-center justify-center p-2 rounded-lg hover:bg-white dark:hover:bg-cyber-700 text-slate-500 hover:text-amber-500 transition-all gap-1"
+              title={t.openDir}
+            >
+              <FolderOpen size={18} />
+            </button>
+            <button 
+               onClick={() => fileInputRef.current?.click()}
+               className="flex flex-col items-center justify-center p-2 rounded-lg hover:bg-white dark:hover:bg-cyber-700 text-slate-500 hover:text-red-500 transition-all gap-1"
+               title={t.importFiles}
+            >
+               <Upload size={18} />
+            </button>
+             <button 
+               onClick={() => quizInputRef.current?.click()}
+               className="flex flex-col items-center justify-center p-2 rounded-lg hover:bg-white dark:hover:bg-cyber-700 text-slate-500 hover:text-violet-500 transition-all gap-1"
+               title={t.quizImport}
+            >
+               <GraduationCap size={18} />
+            </button>
+          </div>
         </div>
+
+        {/* Hidden Inputs */}
+        <input 
+            type="file" 
+            ref={fileInputRef} 
+            className="hidden" 
+            accept=".pdf,.md,.markdown,.txt,.csv,.json,.docx,.doc" 
+            onChange={handleFileImport} 
+        />
+        <input 
+            type="file" 
+            ref={quizInputRef} 
+            className="hidden" 
+            accept=".md,.txt,.csv,.pdf,.json" 
+            onChange={handleQuizUpload} 
+        />
+        <input 
+            type="file" 
+            ref={dirInputRef} 
+            className="hidden" 
+            {...({ webkitdirectory: "", directory: "" } as any)}
+            onChange={handleDirUpload} 
+        />
+        <input
+            type="file"
+            ref={filesInputRef}
+            className="hidden"
+            multiple
+            onChange={handleFilesUpload}
+        />
       </div>
     </>
   );

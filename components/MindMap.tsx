@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import mermaid from 'mermaid';
 import { Theme } from '../types';
@@ -182,7 +181,7 @@ export const MindMap: React.FC<MindMapProps> = ({ content, theme, language = 'en
     const url = "data:image/svg+xml;charset=utf-8,"+encodeURIComponent('<?xml version="1.0" standalone="no"?>\r\n' + source);
     const downloadLink = document.createElement("a");
     downloadLink.href = url;
-    downloadLink.download = "mindmap_neon.svg";
+    downloadLink.download = "mindmap_zhangnote.svg";
     document.body.appendChild(downloadLink);
     downloadLink.click();
     document.body.removeChild(downloadLink);

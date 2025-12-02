@@ -1,11 +1,9 @@
-
-
 import { AppTheme } from '../types';
 
 export const DEFAULT_THEMES: AppTheme[] = [
   {
     id: 'neon-cyber',
-    name: 'Neon Cyber',
+    name: 'Zhang Dark',
     type: 'dark',
     colors: {
       '--bg-main': '11 17 33',       // #0b1121
@@ -61,6 +59,36 @@ export const DEFAULT_THEMES: AppTheme[] = [
       
       '--font-primary': '"Inter", sans-serif',
       '--font-header': '"Inter", sans-serif',
+    }
+  },
+  {
+    id: 'pixel-retro',
+    name: '8-Bit Retro',
+    type: 'dark',
+    colors: {
+      '--bg-main': '32 32 40',       // Dark Slate/Purple (#202028)
+      '--bg-panel': '48 48 60',      // Lighter Slate
+      '--bg-element': '64 64 80',    
+      '--border-main': '255 255 255', // Stark White for high contrast
+      '--text-primary': '255 255 255', 
+      '--text-secondary': '200 200 200',
+      '--primary-500': '255 51 102',  // Retro Pink/Red (#ff3366)
+      '--primary-600': '204 0 51',
+      '--secondary-500': '51 255 102', // Retro Green (#33ff66)
+      
+      '--neutral-50': '255 255 255',
+      '--neutral-100': '240 240 240',
+      '--neutral-200': '220 220 220',
+      '--neutral-300': '200 200 200',
+      '--neutral-400': '150 150 150',
+      '--neutral-500': '100 100 100',
+      '--neutral-600': '80 80 80',
+      '--neutral-700': '60 60 60',
+      '--neutral-800': '40 40 40',    
+      '--neutral-900': '20 20 20',
+
+      '--font-primary': '"Pixelify Sans", sans-serif',
+      '--font-header': '"Press Start 2P", cursive',
     }
   },
   {
@@ -170,6 +198,9 @@ export const applyTheme = (theme: AppTheme) => {
     root.classList.remove('dark');
   }
   
+  // Set Data Attribute for CSS Targeting (e.g. for pixel-retro specific styles)
+  root.setAttribute('data-theme', theme.id);
+
   // Save to storage
   localStorage.setItem('neon-active-theme-id', theme.id);
   // Track preference for this mode (Fix for toggle reset bug)

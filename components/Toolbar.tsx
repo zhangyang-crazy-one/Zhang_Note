@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { 
   Columns, 
@@ -23,7 +24,10 @@ import {
   BrainCircuit,
   GraduationCap,
   Undo,
-  Redo
+  Redo,
+  PanelRightOpen,
+  PanelRightClose,
+  Mic
 } from 'lucide-react';
 import { ViewMode, Theme, AIProvider } from '../types';
 import { translations, Language } from '../utils/translations';
@@ -53,6 +57,14 @@ interface ToolbarProps {
   onRename: (newName: string) => void;
   activeProvider: AIProvider;
   language?: Language;
+  
+  // Multi-File Support
+  isSplitView: boolean;
+  onToggleSplitView: () => void;
+
+  // Voice Support
+  isDictating?: boolean;
+  onToggleDictation?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -79,7 +91,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   fileName,
   onRename,
   activeProvider,
-  language = 'en'
+  language = 'en',
+  isSplitView,
+  onToggleSplitView,
+  isDictating,
+  onToggleDictation
 }) => {
   const t = translations[language];
 
@@ -169,12 +185,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           >
             <Eye size={18} />
           </button>
+          
+          <div className="w-px h-full bg-paper-300 dark:bg-cyber-600 mx-1"></div>
+
           <button
-            onClick={() => { onBuildGraph(); }}
-            className={`p-2 rounded-md transition-all ${viewMode === ViewMode.Graph ? 'bg-white dark:bg-cyber-500 text-cyan-600 dark:text-white shadow-sm' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
-            title={t.graph}
+            onClick={onToggleSplitView}
+            className={`p-2 rounded-md transition-all ${isSplitView ? 'bg-white dark:bg-cyber-500 text-cyan-600 dark:text-white shadow-sm' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
+            title={isSplitView ? "Close Split View" : "Split View (Multi-file)"}
           >
-            <Network size={18} />
+            {isSplitView ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
           </button>
         </div>
 
@@ -201,6 +220,18 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                <GraduationCap size={16} />
             </button>
           </div>
+          
+          {/* Voice Dictation Toggle */}
+          {onToggleDictation && (
+            <button
+              onClick={onToggleDictation}
+              className={`p-2 rounded-lg transition-colors relative ${isDictating ? 'text-red-500 bg-red-50 dark:bg-red-900/20 animate-pulse' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-paper-100 dark:hover:bg-cyber-800'}`}
+              title="Dictation Mode (Real-time Transcription)"
+            >
+              <Mic size={20} />
+              {isDictating && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>}
+            </button>
+          )}
 
           <button
             onClick={toggleChat}

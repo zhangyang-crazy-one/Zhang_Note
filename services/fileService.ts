@@ -148,8 +148,8 @@ export const extractTextFromFile = async (file: File, apiKey?: string): Promise<
       return await processPdfFile(file, apiKey);
     } else if (name.endsWith('.docx') || name.endsWith('.doc')) {
       return await processDocxFile(file);
-    } else if (name.endsWith('.csv') || name.endsWith('.txt') || name.endsWith('.md')) {
-      // Smart handling for CSV/Text: Detect if it's actually binary (e.g. .xls named .csv)
+    } else if (name.endsWith('.csv') || name.endsWith('.txt') || name.endsWith('.md') || name.endsWith('.json')) {
+      // Smart handling for CSV/Text/JSON: Detect if it's actually binary (e.g. .xls named .csv)
       const buffer = await file.arrayBuffer();
       const bytes = new Uint8Array(buffer);
       
@@ -340,6 +340,63 @@ export const parseCsvToQuiz = (file: File): Promise<Quiz | null> => {
             }
         });
     });
+};
+
+export const parseJsonToQuiz = async (file: File): Promise<Quiz | null> => {
+  try {
+    const text = await file.text();
+    const json = JSON.parse(text);
+    
+    // Heuristic: Check if it looks like a quiz
+    let questionsData: any[] = [];
+    let title = file.name.replace(/\.[^/.]+$/, "");
+    let description = "Imported from JSON";
+
+    // Case 1: Root is array of questions
+    if (Array.isArray(json)) {
+        questionsData = json;
+    } 
+    // Case 2: Root is object with questions property
+    else if (json && typeof json === 'object') {
+        if (Array.isArray(json.questions)) {
+            questionsData = json.questions;
+        }
+        if (json.title) title = json.title;
+        if (json.description) description = json.description;
+    }
+
+    if (questionsData.length === 0) return null;
+
+    // Validate and Map
+    const validQuestions: QuizQuestion[] = [];
+    
+    questionsData.forEach((q, idx) => {
+        if (!q.question) return; // minimal requirement
+
+        validQuestions.push({
+            id: q.id || `json-${idx}-${Date.now()}`,
+            type: q.type || (Array.isArray(q.options) && q.options.length > 0 ? 'single' : 'text'),
+            question: q.question,
+            options: Array.isArray(q.options) ? q.options : undefined,
+            correctAnswer: q.correctAnswer,
+            explanation: q.explanation
+        });
+    });
+
+    if (validQuestions.length === 0) return null;
+
+    return {
+        id: `quiz-json-${Date.now()}`,
+        title,
+        description,
+        questions: validQuestions,
+        isGraded: false
+    };
+
+  } catch (e) {
+    console.error("JSON Quiz Parse Error", e);
+    return null;
+  }
 };
 
 export const processPdfFile = async (file: File, apiKey?: string): Promise<string> => {
