@@ -22,11 +22,17 @@ export enum ViewMode {
   MindMap = 'MINDMAP',
   NoteSpace = 'NOTE_SPACE',
   Library = 'LIBRARY',
-  Analytics = 'ANALYTICS'
+  Analytics = 'ANALYTICS',
+  Diff = 'DIFF'
 }
 
 export type ThemeType = 'dark' | 'light';
-export type PaneType = 'primary' | 'secondary';
+
+export interface EditorPane {
+  id: string;
+  fileId: string;
+  mode: 'editor' | 'preview';
+}
 
 // Helper type for compatibility with old code
 export type Theme = ThemeType; 

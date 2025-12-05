@@ -7,7 +7,7 @@ import { generateStructuredExam } from '../services/aiService';
 interface ExamConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onStartExam: (quiz: Quiz, config: ExamConfig) => void;
+  onComplete: (quiz: Quiz, config: ExamConfig) => void;
   selectedFile: MarkdownFile;
   aiConfig: AIConfig;
   preSelectedQuestions?: any[]; // If coming from manual selection
@@ -16,7 +16,7 @@ interface ExamConfigModalProps {
 export const ExamConfigModal: React.FC<ExamConfigModalProps> = ({
   isOpen,
   onClose,
-  onStartExam,
+  onComplete,
   selectedFile,
   aiConfig,
   preSelectedQuestions
@@ -39,13 +39,13 @@ export const ExamConfigModal: React.FC<ExamConfigModalProps> = ({
       setIsGenerating(true);
       try {
           const quiz = await generateStructuredExam(topics, questionCount, difficultyDist, [selectedFile], aiConfig);
-          onStartExam(quiz, {
+          onComplete(quiz, {
               mode,
               duration: mode === 'exam' ? duration : 0,
               passingScore,
               showAnswers: mode === 'exam' ? 'after_submit' : showAnswers
           });
-          onClose();
+          // Note: onClose is handled by parent after receiving data
       } catch (e) {
           console.error(e);
           alert("Failed to generate exam.");
@@ -63,13 +63,12 @@ export const ExamConfigModal: React.FC<ExamConfigModalProps> = ({
           questions: preSelectedQuestions,
           isGraded: false
       };
-      onStartExam(quiz, {
+      onComplete(quiz, {
           mode,
           duration: mode === 'exam' ? duration : 0,
           passingScore,
           showAnswers: mode === 'exam' ? 'after_submit' : showAnswers
       });
-      onClose();
   };
 
   if (!isOpen) return null;
@@ -208,7 +207,7 @@ export const ExamConfigModal: React.FC<ExamConfigModalProps> = ({
                         className="px-6 py-2 bg-gradient-to-r from-cyan-500 to-violet-500 text-white font-bold rounded-lg shadow-lg hover:opacity-90 flex items-center gap-2 disabled:opacity-50"
                     >
                         {isGenerating ? <Sparkles className="animate-spin" size={16} /> : <Play size={16} />}
-                        {isGenerating ? "Generating..." : "Generate & Start"}
+                        {isGenerating ? "Generating..." : "Generate & Review"}
                     </button>
                 </>
             ) : (
@@ -217,7 +216,7 @@ export const ExamConfigModal: React.FC<ExamConfigModalProps> = ({
                     disabled={isGenerating}
                     className="w-full px-6 py-3 bg-gradient-to-r from-cyan-500 to-violet-500 text-white font-bold rounded-lg shadow-lg hover:opacity-90 flex items-center justify-center gap-2 disabled:opacity-50"
                 >
-                    {isGenerating ? "Generating..." : "Start Exam"}
+                    {isGenerating ? "Generating..." : "Next: Review"}
                 </button>
             )}
         </div>

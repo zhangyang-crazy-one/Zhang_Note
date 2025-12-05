@@ -1,7 +1,11 @@
 
+
+
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Quiz, AIConfig, Theme, MistakeRecord } from '../types';
-import { CheckCircle2, XCircle, HelpCircle, Download, BookOpen, AlertTriangle, ArrowRight, ArrowLeft, RotateCcw, BookmarkX, Trash2, Sparkles, Loader2, Clock, Check, Award, BarChart2, Star, ThumbsUp, Lightbulb, Timer } from 'lucide-react';
+import { CheckCircle2, XCircle, HelpCircle, Download, BookOpen, AlertTriangle, ArrowRight, ArrowLeft, RotateCcw, BookmarkX, Trash2, Sparkles, Loader2, Clock, Check, Award, BarChart2, Star, ThumbsUp, Lightbulb, Timer, Save, Database } from 'lucide-react';
 import { gradeQuizQuestion, generateQuizExplanation, gradeSubjectiveAnswer } from '../services/aiService';
 import { saveExamResult } from '../services/analyticsService';
 import { translations, Language } from '../utils/translations';
@@ -17,9 +21,11 @@ interface QuizPanelProps {
   onClose: () => void;
   contextContent: string;
   language?: Language;
+  onSave?: () => void;
+  onAddToBank?: () => void;
 }
 
-export const QuizPanel: React.FC<QuizPanelProps> = ({ quiz, aiConfig, theme, onClose, contextContent, language = 'en' }) => {
+export const QuizPanel: React.FC<QuizPanelProps> = ({ quiz, aiConfig, theme, onClose, contextContent, language = 'en', onSave, onAddToBank }) => {
   const [currentQuiz, setCurrentQuiz] = useState<Quiz>(quiz);
   const [activeQuestionIdx, setActiveQuestionIdx] = useState(0);
   const [gradingIds, setGradingIds] = useState<string[]>([]);
@@ -517,6 +523,15 @@ export const QuizPanel: React.FC<QuizPanelProps> = ({ quiz, aiConfig, theme, onC
             )}
         </div>
         <div className="flex items-center gap-2">
+            {onAddToBank && (
+                <button 
+                    onClick={onAddToBank} 
+                    className="p-2 text-slate-400 hover:text-amber-500 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors relative group"
+                    title={t.addToBank || "Add to Question Bank"}
+                >
+                    <Database size={20} />
+                </button>
+            )}
             <button 
                 onClick={() => setShowMistakes(true)} 
                 className="p-2 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors relative"
@@ -528,6 +543,16 @@ export const QuizPanel: React.FC<QuizPanelProps> = ({ quiz, aiConfig, theme, onC
             <button onClick={handleDownload} className="p-2 text-slate-400 hover:text-cyan-500 rounded-lg hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-colors" title={t.download}>
                 <Download size={20} />
             </button>
+            {onSave && (
+                <button 
+                    onClick={onSave} 
+                    className="p-2 text-cyan-500 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-900/20 rounded-lg transition-colors relative group"
+                    title={t.saveQuiz || "Save Quiz"}
+                >
+                    <div className="absolute top-1 right-1"><Sparkles size={8} fill="currentColor" /></div>
+                    <Save size={20} />
+                </button>
+            )}
             <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-paper-100 dark:hover:bg-cyber-700 transition-colors" title={t.exitQuiz}>
                 <XCircle size={20} />
             </button>

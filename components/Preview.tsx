@@ -340,6 +340,7 @@ export const Preview = forwardRef<HTMLDivElement, PreviewProps>(({ content, onSc
           <ReactMarkdown 
             remarkPlugins={[remarkGfm, remarkMath]} 
             rehypePlugins={[rehypeHighlight, rehypeKatex, ...(renderHtml ? [rehypeRaw] : [])]}
+            urlTransform={(value: string) => value} // Enable data URIs for images
             components={{
               pre: ({children}) => <>{children}</>,
               code: EnhancedCodeBlock,

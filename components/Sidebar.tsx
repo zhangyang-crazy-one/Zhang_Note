@@ -1,10 +1,10 @@
-
 import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   FileText, Plus, Trash2, FolderOpen, Search, X, FolderInput, 
   FileType, List, AlignLeft, ChevronRight, GraduationCap, 
   Folder, FileCode, FileImage, FileJson, FileSpreadsheet, File as FileIcon,
-  Lock, Upload, Database, Loader2, RefreshCw, Edit2, Tag as TagIcon, Hash, Scissors, Copy
+  Lock, Upload, Database, Loader2, RefreshCw, Edit2, Tag as TagIcon, Hash, Scissors, Copy,
+  GitCompare
 } from 'lucide-react';
 import { MarkdownFile, RAGStats, Snippet } from '../types';
 import { translations, Language } from '../utils/translations';
@@ -29,6 +29,7 @@ interface SidebarProps {
   onRefreshIndex?: () => void;
   onInsertSnippet?: (text: string) => void;
   onGenerateExam?: (fileId: string) => void; 
+  onCompareFile?: (id: string) => void;
 }
 
 interface OutlineItem {
@@ -109,11 +110,12 @@ const FileTreeRow = React.memo<{
     onRenameCancel: () => void;
     onStartRename: (id: string, initialName: string) => void;
     onGenerateExam: (id: string) => void;
+    onCompareFile?: (id: string) => void;
     t: any;
 }>(({ 
     node, activeFileId, onSelect, onToggle, onDelete, onRequestCreate, 
     onDragStart, onDragOver, onDrop, isDropTarget,
-    isRenaming, renameValue, onRenameChange, onRenameSubmit, onRenameCancel, onStartRename, onGenerateExam, t
+    isRenaming, renameValue, onRenameChange, onRenameSubmit, onRenameCancel, onStartRename, onGenerateExam, onCompareFile, t
 }) => {
     const indentStyle = { paddingLeft: `${node.level * 12 + 12}px` };
     const inputRef = useRef<HTMLInputElement>(null);
@@ -253,6 +255,15 @@ const FileTreeRow = React.memo<{
                    >
                      <GraduationCap size={12} />
                    </button>
+                   {onCompareFile && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onCompareFile(node.fileId!); }}
+                            className="p-1 hover:bg-amber-100 dark:hover:bg-amber-900/30 hover:text-amber-500 rounded transition-all"
+                            title={t.compareActive || "Compare"}
+                        >
+                            <GitCompare size={12} />
+                        </button>
+                   )}
                    <button
                     onClick={(e) => { e.stopPropagation(); onStartRename(node.fileId!, node.name); }}
                     className="p-1 hover:bg-cyan-100 dark:hover:bg-cyan-900/30 hover:text-cyan-500 rounded transition-all"
@@ -291,7 +302,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ragStats,
   onRefreshIndex,
   onInsertSnippet,
-  onGenerateExam = () => {}
+  onGenerateExam = () => {},
+  onCompareFile
 }) => {
   const [activeTab, setActiveTab] = useState<'files' | 'outline' | 'tags' | 'snippets'>('files');
   const [outline, setOutline] = useState<OutlineItem[]>([]);
@@ -596,6 +608,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const handleDragOver = (e: React.DragEvent, nodeId: string | null) => {
     e.preventDefault(); 
+    e.stopPropagation(); // Prevents bubbling to parent containers
     e.dataTransfer.dropEffect = 'move';
     if (dragOverNodeId !== nodeId) {
         setDragOverNodeId(nodeId);
@@ -605,6 +618,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const handleDrop = (e: React.DragEvent, targetPath: string | null) => {
       e.preventDefault();
+      e.stopPropagation(); // Prevents bubbling to parent containers
       const sourceId = e.dataTransfer.getData('text/plain');
       setDragOverNodeId(null);
       setIsRootDropTarget(false);
@@ -748,6 +762,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           onRenameCancel={handleRenameCancel}
                           onStartRename={handleStartRename}
                           onGenerateExam={onGenerateExam}
+                          onCompareFile={onCompareFile}
                           t={t}
                        />
                    ))

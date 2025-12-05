@@ -1,4 +1,5 @@
 
+
 import React, { forwardRef, useCallback, useState } from 'react';
 import { UploadCloud } from 'lucide-react';
 import { AppShortcut } from '../types';
@@ -323,7 +324,9 @@ export const Editor = forwardRef<HTMLTextAreaElement, EditorProps>(({ content, o
       
       if (file.type.startsWith('image/')) {
           const base64 = await compressImage(file);
-          insertion = `\n![${file.name}](${base64})\n`;
+          // Sanitize filename to prevent Markdown link breakage if it contains brackets
+          const safeName = file.name.replace(/[\[\]]/g, '_');
+          insertion = `\n![${safeName}](${base64})\n`;
       } else if (file.type === 'application/pdf') {
           const reader = new FileReader();
           reader.readAsDataURL(file);

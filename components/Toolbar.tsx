@@ -1,4 +1,5 @@
 
+
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Columns, 
@@ -32,7 +33,10 @@ import {
   BarChart2,
   ChevronDown,
   Workflow,
-  Lightbulb
+  Lightbulb,
+  FilePlus2,
+  GitCompare,
+  Save
 } from 'lucide-react';
 import { ViewMode, Theme, AIProvider } from '../types';
 import { translations, Language } from '../utils/translations';
@@ -67,6 +71,7 @@ interface ToolbarProps {
   // Multi-File Support
   isSplitView: boolean;
   onToggleSplitView: () => void;
+  onAddPane?: () => void;
 
   // Voice Support
   isDictating?: boolean;
@@ -74,6 +79,9 @@ interface ToolbarProps {
 
   // Smart Organize
   onSmartOrganize?: () => void;
+  
+  // Smart Save
+  onSmartSave?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -104,9 +112,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   language = 'en',
   isSplitView,
   onToggleSplitView,
+  onAddPane,
   isDictating,
   onToggleDictation,
-  onSmartOrganize
+  onSmartOrganize,
+  onSmartSave
 }) => {
   const t = translations[language];
   const [isAiMenuOpen, setIsAiMenuOpen] = useState(false);
@@ -210,6 +220,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           
           <div className="w-px h-full bg-paper-300 dark:bg-cyber-600 mx-1"></div>
 
+          {/* New Add Pane Button for Split Mode */}
+          {viewMode === ViewMode.Split && onAddPane && (
+             <button
+                onClick={onAddPane}
+                className="p-2 rounded-md text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-all"
+                title={t.addPane}
+             >
+                <FilePlus2 size={18} />
+             </button>
+          )}
+
           <button
             onClick={onToggleSplitView}
             className={`p-2 rounded-md transition-all ${isSplitView ? 'bg-white dark:bg-cyber-500 text-cyan-600 dark:text-white shadow-sm' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
@@ -231,13 +252,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cyan-50 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-400 border border-cyan-500/30 hover:bg-white dark:hover:bg-cyber-700/50 transition-all disabled:opacity-50"
             >
               <Sparkles size={16} className={isAIThinking ? 'animate-spin' : ''} />
-              <span className="text-sm font-medium hidden sm:inline">AI Actions</span>
+              <span className="text-sm font-medium hidden sm:inline">{t.aiActions}</span>
               <ChevronDown size={14} />
             </button>
 
             {isAiMenuOpen && (
               <div className="absolute top-full right-0 mt-2 w-56 bg-white dark:bg-cyber-800 rounded-xl shadow-xl border border-paper-200 dark:border-cyber-700 py-2 z-50 animate-slideDown">
-                <div className="px-3 py-1.5 text-xs font-bold text-slate-400 uppercase tracking-wider">Editing</div>
+                <div className="px-3 py-1.5 text-xs font-bold text-slate-400 uppercase tracking-wider">{t.sectionEditing || "Editing"}</div>
                 <button
                   onClick={() => { onAIPolish(); setIsAiMenuOpen(false); }}
                   className="w-full text-left px-4 py-2 hover:bg-paper-100 dark:hover:bg-cyber-700 text-sm text-slate-700 dark:text-slate-200 flex items-center gap-2"
@@ -256,12 +277,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     onClick={() => { onSmartOrganize(); setIsAiMenuOpen(false); }}
                     className="w-full text-left px-4 py-2 hover:bg-paper-100 dark:hover:bg-cyber-700 text-sm text-slate-700 dark:text-slate-200 flex items-center gap-2"
                   >
-                    <Lightbulb size={14} className="text-amber-500" /> Smart Organize
+                    <Lightbulb size={14} className="text-amber-500" /> {t.smartOrganize}
                   </button>
                 )}
                 
                 <div className="my-1 h-px bg-paper-200 dark:bg-cyber-700"></div>
-                <div className="px-3 py-1.5 text-xs font-bold text-slate-400 uppercase tracking-wider">Generation</div>
+                <div className="px-3 py-1.5 text-xs font-bold text-slate-400 uppercase tracking-wider">{t.sectionGeneration || "Generation"}</div>
                 
                 <button
                   onClick={() => { onGenerateMindMap(); setIsAiMenuOpen(false); }}
@@ -274,18 +295,18 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   onClick={() => { onGenerateQuiz(); setIsAiMenuOpen(false); }}
                   className="w-full text-left px-4 py-2 hover:bg-paper-100 dark:hover:bg-cyber-700 text-sm text-slate-700 dark:text-slate-200 flex items-center gap-2"
                 >
-                  <GraduationCap size={14} className="text-amber-500" /> Question Bank
+                  <GraduationCap size={14} className="text-amber-500" /> {t.questionBank}
                 </button>
 
                 <div className="my-1 h-px bg-paper-200 dark:bg-cyber-700"></div>
-                <div className="px-3 py-1.5 text-xs font-bold text-slate-400 uppercase tracking-wider">Deep Analysis</div>
+                <div className="px-3 py-1.5 text-xs font-bold text-slate-400 uppercase tracking-wider">{t.sectionDeepAnalysis || "Deep Analysis"}</div>
 
                 <button
                   onClick={() => { onAIEntityExtraction(); setIsAiMenuOpen(false); }}
                   className="w-full text-left px-4 py-2 hover:bg-paper-100 dark:hover:bg-cyber-700 text-sm text-slate-700 dark:text-slate-200 flex items-center gap-2 group"
                 >
                   <Workflow size={14} className="text-red-500 group-hover:scale-110 transition-transform" /> 
-                  <span>Extract Entities</span>
+                  <span>{t.extractEntities}</span>
                 </button>
               </div>
             )}
@@ -331,6 +352,18 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
         {/* File Actions */}
         <div className="flex items-center gap-1 hidden lg:flex">
+          {onSmartSave && (
+            <button 
+              onClick={onSmartSave} 
+              className="p-2 text-cyan-500 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-900/20 rounded-lg transition-colors relative group" 
+              title={t.smartSave}
+            >
+              <div className="absolute top-1 right-1">
+                <Sparkles size={8} fill="currentColor" />
+              </div>
+              <Save size={20} />
+            </button>
+          )}
           <button onClick={onExport} className="p-2 text-slate-400 hover:text-cyan-600 dark:hover:text-cyber-400 transition-colors" title={t.download}>
             <Download size={20} />
           </button>

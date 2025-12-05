@@ -69,6 +69,55 @@ const deriveKey = (passwordKey: CryptoKey, salt: Uint8Array, keyUsage: ["encrypt
     keyUsage
   );
 
+// --- Validation Helpers ---
+
+const validateAppData = (data: any): AppData => {
+  if (!data || typeof data !== 'object') {
+    throw new Error("Invalid backup format: Root must be an object.");
+  }
+
+  // 1. Validate Files
+  let validFiles: MarkdownFile[] = [];
+  if (Array.isArray(data.files)) {
+    validFiles = data.files.filter((f: any) => {
+      return f && typeof f === 'object' && typeof f.id === 'string' && typeof f.name === 'string';
+    }).map((f: any) => ({
+      ...f,
+      content: typeof f.content === 'string' ? f.content : '', // Ensure content exists
+      lastModified: typeof f.lastModified === 'number' ? f.lastModified : Date.now()
+    }));
+  }
+
+  if (validFiles.length === 0 && Array.isArray(data.files) && data.files.length > 0) {
+     console.warn("Backup contained files but none were valid. Check schema.");
+  }
+
+  // 2. Validate Config
+  const validConfig: AIConfig = {
+    provider: data.config?.provider || 'gemini',
+    model: data.config?.model || 'gemini-2.5-flash',
+    apiKey: data.config?.apiKey || '', // Allow empty, user can re-enter
+    baseUrl: data.config?.baseUrl,
+    temperature: typeof data.config?.temperature === 'number' ? data.config.temperature : 0.7,
+    language: data.config?.language === 'zh' ? 'zh' : 'en',
+    enableWebSearch: !!data.config?.enableWebSearch,
+    mcpTools: data.config?.mcpTools || '[]',
+    customPrompts: data.config?.customPrompts || {},
+    backup: data.config?.backup || { frequency: 'weekly', lastBackup: 0 }
+  };
+
+  return {
+    files: validFiles,
+    config: validConfig,
+    themes: Array.isArray(data.themes) ? data.themes : [],
+    customThemes: Array.isArray(data.customThemes) ? data.customThemes : [],
+    chatHistory: Array.isArray(data.chatHistory) ? data.chatHistory : [],
+    noteLayout: typeof data.noteLayout === 'object' ? data.noteLayout : {},
+    shortcuts: Array.isArray(data.shortcuts) ? data.shortcuts : [],
+    timestamp: typeof data.timestamp === 'number' ? data.timestamp : Date.now()
+  };
+};
+
 // --- Core Data Operations ---
 
 export const gatherAppData = (): AppData => {
@@ -80,15 +129,15 @@ export const gatherAppData = (): AppData => {
   const customThemes = JSON.parse(localStorage.getItem('neon-custom-themes') || '[]');
 
   // Sanitize files (remove file handles as they can't be serialized)
-  const cleanFiles = files.map((f: any) => {
+  const cleanFiles = Array.isArray(files) ? files.map((f: any) => {
     const { handle, ...rest } = f;
     return rest;
-  });
+  }) : [];
 
   return {
     files: cleanFiles,
     config,
-    themes: [], // Default themes are static code, custom themes are in separate key
+    themes: [], 
     customThemes,
     chatHistory,
     noteLayout,
@@ -167,15 +216,23 @@ export const decryptDatabase = async (fileContent: string, password: string): Pr
         }
     }
 
-    return JSON.parse(decodedStr);
-  } catch (e) {
+    const rawData = JSON.parse(decodedStr);
+    return validateAppData(rawData);
+
+  } catch (e: any) {
+    if (e.message.includes('Invalid backup')) throw e;
     throw new Error("Incorrect password or corrupted data.");
   }
 };
 
 export const restoreAppData = (data: AppData) => {
   if (data.files) localStorage.setItem('neon-files', JSON.stringify(data.files));
-  if (data.config) localStorage.setItem('neon-ai-config', JSON.stringify(data.config));
+  // Merge config intelligently to preserve defaults if keys are missing
+  if (data.config) {
+      const existing = JSON.parse(localStorage.getItem('neon-ai-config') || '{}');
+      const merged = { ...existing, ...data.config };
+      localStorage.setItem('neon-ai-config', JSON.stringify(merged));
+  }
   if (data.chatHistory) localStorage.setItem('neon-chat-history', JSON.stringify(data.chatHistory));
   if (data.noteLayout) localStorage.setItem('neon-note-layout', JSON.stringify(data.noteLayout));
   if (data.shortcuts) localStorage.setItem('neon-shortcuts', JSON.stringify(data.shortcuts));
@@ -207,14 +264,12 @@ export const exportDatabaseToFile = async (password: string): Promise<boolean> =
             await writable.close();
             return true;
         } catch (err: any) {
-            // If user cancels, we abort. 
-            // If SecurityError (iframe) or other error, we fall through to fallback
             if (err.name === 'AbortError') return false; 
             console.warn("File System Access API failed, using fallback.", err);
         }
     }
 
-    // Fallback: Blob Download (Works in iframes/embedded contexts)
+    // Fallback: Blob Download
     const blob = new Blob([encryptedString], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -223,7 +278,6 @@ export const exportDatabaseToFile = async (password: string): Promise<boolean> =
     document.body.appendChild(a); 
     a.click();
     
-    // Cleanup
     setTimeout(() => {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);

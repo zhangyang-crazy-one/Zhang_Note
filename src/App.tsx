@@ -1,8 +1,10 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+
+
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { 
   MarkdownFile, ViewMode, AppTheme, AIConfig, AIState, ChatMessage, 
-  GraphData, Quiz, NoteLayoutItem, RAGStats, SearchResult 
+  GraphData, Quiz, NoteLayoutItem, AppShortcut, RAGStats, SearchResult 
 } from './types';
 import { Sidebar } from './components/Sidebar';
 import { Toolbar } from './components/Toolbar';
@@ -28,17 +30,22 @@ import {
   polishContent, 
   expandContent, 
   generateMindMap, 
+  generateQuiz, 
+  enhanceUserPrompt, 
   extractEntitiesAndRelationships,
-  enhanceUserPrompt
+  suggestTags,
+  compactConversation
 } from './services/aiService';
 import { 
+  readDirectory, 
   saveFileToDisk, 
-  extractTextFromFile,
+  extractTextFromFile, 
   parseCsvToQuiz, 
   parseJsonToQuiz 
 } from './services/fileService';
 import { 
-  generateFileLinkGraph
+  generateFileLinkGraph, 
+  buildKnowledgeIndex 
 } from './services/knowledgeService';
 import { 
     getAllThemes, 
@@ -107,9 +114,6 @@ function App() {
   const [mindMapContent, setMindMapContent] = useState('');
   const [noteLayout, setNoteLayout] = useState<Record<string, NoteLayoutItem>>({});
   const [ragStats, setRagStats] = useState<RAGStats | undefined>(undefined);
-  
-  // Diff State
-  const [diffData, setDiffData] = useState<{ original: MarkdownFile, modified: MarkdownFile } | null>(null);
 
   const vectorStore = useRef(new VectorStore());
 
@@ -150,7 +154,7 @@ function App() {
         }
         setRagStats(prev => ({ ...prev!, isIndexing: false }));
     };
-    // Debounce indexing
+    // Debounce indexing to avoid thrashing on every keystroke
     const timer = setTimeout(indexFiles, 3000);
     return () => clearTimeout(timer);
   }, [files, aiConfig]);
@@ -174,6 +178,7 @@ function App() {
           };
           setFiles(prev => [...prev, newFile]);
           setActiveFileId(newFile.id);
+          // If created in split view, could auto-open, but simple select is fine
       } else {
           // Create a .keep file to persist folder
           const keepFile: MarkdownFile = {
@@ -209,6 +214,7 @@ function App() {
   };
 
   const handleImportQuiz = async (file: File) => {
+     // .md files can now be quizzes if they contain the JSON structure (Smart Saved exams)
      const isJsonOrMd = file.name.toLowerCase().endsWith('.json') || file.name.toLowerCase().endsWith('.md');
      const quiz = isJsonOrMd 
         ? await parseJsonToQuiz(file)
@@ -220,19 +226,6 @@ function App() {
      } else {
          alert("Failed to parse quiz file. Ensure it contains a valid quiz structure.");
      }
-  };
-
-  // --- Comparison Logic ---
-  
-  const handleCompareFile = (compareId: string) => {
-      const compareFile = files.find(f => f.id === compareId);
-      if (compareFile && activeFile) {
-          setDiffData({
-              original: compareFile,
-              modified: activeFile
-          });
-          setViewMode(ViewMode.Diff);
-      }
   };
 
   // --- AI Actions ---
@@ -250,7 +243,7 @@ function App() {
               "You are a helpful assistant.", 
               false, 
               [activeFile],
-              undefined, 
+              undefined, // Tool callback
               ragContext
           );
           
@@ -267,16 +260,11 @@ function App() {
       setAiState({ isThinking: true, error: null, message: "Polishing content..." });
       try {
           const polished = await polishContent(activeFile.content, aiConfig);
-          // Instead of direct update, set up diff view
-          setDiffData({
-              original: { ...activeFile },
-              modified: { ...activeFile, content: polished, name: `${activeFile.name} (Polished)` }
-          });
-          setViewMode(ViewMode.Diff);
+          updateFile(activeFileId, polished);
       } catch (e: any) {
           setAiState({ isThinking: false, error: e.message, message: null });
       } finally {
-          setAiState(prev => ({ ...prev, isThinking: false, message: null }));
+          setAiState({ isThinking: false, error: null, message: null });
       }
   };
 
@@ -284,15 +272,11 @@ function App() {
       setAiState({ isThinking: true, error: null, message: "Expanding content..." });
       try {
           const expanded = await expandContent(activeFile.content, aiConfig);
-          setDiffData({
-              original: { ...activeFile },
-              modified: { ...activeFile, content: expanded, name: `${activeFile.name} (Expanded)` }
-          });
-          setViewMode(ViewMode.Diff);
+          updateFile(activeFileId, expanded);
       } catch (e: any) {
           setAiState({ isThinking: false, error: e.message, message: null });
       } finally {
-          setAiState(prev => ({ ...prev, isThinking: false, message: null }));
+          setAiState({ isThinking: false, error: null, message: null });
       }
   };
 
@@ -305,7 +289,7 @@ function App() {
       } catch (e: any) {
           setAiState({ isThinking: false, error: e.message, message: null });
       } finally {
-          setAiState(prev => ({ ...prev, isThinking: false, message: null }));
+          setAiState({ isThinking: false, error: null, message: null });
       }
   };
 
@@ -322,6 +306,33 @@ function App() {
       setSmartSaveOpen(false);
   };
 
+  const handleAddToQuestionBank = () => {
+      if (!activeQuiz) return;
+      
+      try {
+          const existingBankStr = localStorage.getItem('neon-question-bank');
+          const existingBank: any[] = existingBankStr ? JSON.parse(existingBankStr) : [];
+          
+          let addedCount = 0;
+          const newQuestions = activeQuiz.questions.filter(q => {
+              const exists = existingBank.some(eq => eq.question === q.question);
+              if (!exists) addedCount++;
+              return !exists;
+          });
+          
+          if (addedCount > 0) {
+              const updatedBank = [...existingBank, ...newQuestions];
+              localStorage.setItem('neon-question-bank', JSON.stringify(updatedBank));
+              alert(`Successfully added ${addedCount} questions to the Question Bank.`);
+          } else {
+              alert("No new unique questions to add.");
+          }
+      } catch (e) {
+          console.error("Failed to add to bank", e);
+          alert("Failed to save to Question Bank.");
+      }
+  };
+
   // --- Render ---
 
   if (requireLogin && !isAuthenticated) {
@@ -335,39 +346,15 @@ function App() {
           case ViewMode.MindMap:
               return <MindMap content={mindMapContent} theme={themeId === 'neon-cyber' ? 'dark' : 'light'} language={aiConfig.language} />;
           case ViewMode.Quiz:
-              return activeQuiz ? <QuizPanel quiz={activeQuiz} aiConfig={aiConfig} theme={themeId === 'neon-cyber' ? 'dark' : 'light'} onClose={() => setViewMode(ViewMode.Editor)} contextContent={activeFile.content} language={aiConfig.language} /> : <div>No Quiz Active</div>;
+              return activeQuiz ? <QuizPanel quiz={activeQuiz} aiConfig={aiConfig} theme={themeId === 'neon-cyber' ? 'dark' : 'light'} onClose={() => setViewMode(ViewMode.Editor)} contextContent={activeFile.content} language={aiConfig.language} onAddToBank={handleAddToQuestionBank} /> : <div>No Quiz Active</div>;
           case ViewMode.NoteSpace:
               return <NoteSpace files={files} activeFileId={activeFileId} onSelectFile={setActiveFileId} layout={noteLayout} onLayoutChange={setNoteLayout} theme={themeId === 'neon-cyber' ? 'dark' : 'light'} />;
           case ViewMode.Library:
               return <LibraryView files={files} onSelectFile={(id) => { setActiveFileId(id); setViewMode(ViewMode.Editor); }} activeFileId={activeFileId} />;
           case ViewMode.Analytics:
               return <AnalyticsDashboard files={files} onNavigate={(id) => { setActiveFileId(id); setViewMode(ViewMode.Editor); }} language={aiConfig.language} />;
-          case ViewMode.Diff:
-              return diffData ? (
-                  <DiffView 
-                      originalContent={diffData.original.content} 
-                      modifiedContent={diffData.modified.content} 
-                      originalName={diffData.original.name} 
-                      modifiedName={diffData.modified.name} 
-                      onAccept={() => {
-                          updateFile(activeFileId, diffData.modified.content);
-                          setViewMode(ViewMode.Editor);
-                          setDiffData(null);
-                      }}
-                      onReject={() => {
-                          setViewMode(ViewMode.Editor);
-                          setDiffData(null);
-                      }}
-                      onClose={() => {
-                          setViewMode(ViewMode.Editor);
-                          setDiffData(null);
-                      }}
-                      language={aiConfig.language}
-                      isEditable={true}
-                      onUpdateModified={(val) => setDiffData({ ...diffData, modified: { ...diffData.modified, content: val } })}
-                  />
-              ) : <div>No diff data</div>;
           case ViewMode.Split:
+              // For simplicity in this fix, we render Editor and Preview side-by-side
               return (
                   <div className="flex h-full">
                       <div className="w-1/2 border-r border-gray-200 dark:border-gray-700">
@@ -392,7 +379,7 @@ function App() {
             onSelectFile={(id) => { setActiveFileId(id); setViewMode(ViewMode.Editor); }}
             onCreateItem={createItem}
             onDeleteFile={deleteFile}
-            onMoveItem={(src, dest) => { /* Move logic */ }}
+            onMoveItem={(src, dest) => { /* Implement move */ }}
             onRenameItem={(id, name) => setFiles(prev => prev.map(f => f.id === id ? { ...f, name } : f))}
             isOpen={sidebarOpen}
             onCloseMobile={() => setSidebarOpen(false)}
@@ -401,10 +388,9 @@ function App() {
             onImportQuiz={handleImportQuiz}
             language={aiConfig.language}
             ragStats={ragStats}
-            onRefreshIndex={() => { /* Re-index logic */ }}
+            onRefreshIndex={() => { /* Trigger re-index */ }}
             onInsertSnippet={(text) => updateFile(activeFileId, activeFile.content + text)}
             onGenerateExam={() => setQuestionBankOpen(true)}
-            onCompareFile={handleCompareFile}
         />
         
         <div className="flex-1 flex flex-col h-full overflow-hidden relative">
@@ -421,14 +407,14 @@ function App() {
                     setViewMode(ViewMode.Graph);
                 }}
                 onBuildGraph={handleBuildGraph}
-                onSynthesize={() => {}}
+                onSynthesize={() => {/* Synthesize logic */}}
                 onGenerateMindMap={handleGenerateMindMap}
                 onGenerateQuiz={() => setQuestionBankOpen(true)}
-                onFormatBold={() => {}}
-                onFormatItalic={() => {}}
+                onFormatBold={() => { /* Bold */ }}
+                onFormatItalic={() => { /* Italic */ }}
                 isAIThinking={aiState.isThinking}
                 theme={themeId === 'neon-cyber' ? 'dark' : 'light'}
-                toggleTheme={() => { /* Toggle logic handled by settings */ }}
+                toggleTheme={() => { /* Basic toggle for now, Settings has full selection */ }}
                 toggleSidebar={() => setSidebarOpen(!sidebarOpen)}
                 toggleChat={() => setChatOpen(!chatOpen)}
                 toggleSettings={() => setSettingsOpen(true)}
@@ -488,10 +474,10 @@ function App() {
                     file={activeFile}
                     allFiles={files}
                     aiConfig={aiConfig}
-                    onApplyTags={(tags) => { /* Tag logic */ }}
+                    onApplyTags={(tags) => { /* Apply tags logic */ }}
                     onMoveFile={(path) => { /* Move logic */ }}
                     onInsertLink={(target) => updateFile(activeFileId, activeFile.content + `\n[[${target}]]`)}
-                    onUpdateMetadata={(score, concepts) => { /* Metadata logic */ }}
+                    onUpdateMetadata={(score, concepts) => { /* Update metadata */ }}
                     findRelatedFiles={(id) => vectorStore.current.findRelatedFiles(id)}
                     onOpenSettings={() => setSettingsOpen(true)}
                 />

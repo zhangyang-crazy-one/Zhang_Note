@@ -1,4 +1,5 @@
 
+
 export const translations = {
   en: {
     // General
@@ -13,6 +14,7 @@ export const translations = {
     filesStored: "files stored",
     filename: "Filename",
     save: "Save",
+    saveQuiz: "Save Quiz",
     cancel: "Cancel",
     close: "Close",
     download: "Download",
@@ -29,15 +31,31 @@ export const translations = {
     chat: "AI Chat",
     settings: "Settings",
     editor: "Editor",
-    split: "Split",
+    split: "Split View",
+    addPane: "Add Split Pane",
     preview: "Preview",
     graph: "Graph",
     library: "Library",
     analytics: "Analytics",
     aiActions: "AI Actions",
+    sectionEditing: "Editing",
+    sectionGeneration: "Generation",
+    sectionDeepAnalysis: "Deep Analysis",
     smartOrganize: "Smart Organize",
     extractEntities: "Extract Entities",
     dictation: "Dictation Mode",
+    compareActive: "Compare with Active",
+    diffView: "Diff Review",
+    diffViewMode: "Diff View Mode",
+    unifiedDiff: "Unified Diff",
+    splitDiff: "Split Diff",
+    acceptChanges: "Accept Changes",
+    rejectChanges: "Reject",
+    applyMerge: "Merge to Active",
+    original: "Original",
+    modified: "Modified / Selection",
+    noDiff: "No differences found between files.",
+    smartSave: "Smart Save",
     
     // Sidebar
     files: "Files",
@@ -116,6 +134,7 @@ export const translations = {
     passedMsg: "You have successfully passed the exam.",
     failedMsg: "You didn't meet the passing score this time.",
     returnEditor: "Return to Editor",
+    addToBank: "Add to Bank",
     
     // Analytics
     knowledgeAnalytics: "Knowledge Analytics",
@@ -157,6 +176,11 @@ export const translations = {
     retry: "Retry",
     analysisFailed: "Analysis Failed",
     analyzing: "Analyzing content...",
+    smartSaveTitle: "Smart Tag & Save",
+    suggestedTags: "Suggested Tags",
+    addTag: "Add tag...",
+    confirmSave: "Confirm & Save",
+    analyzingTags: "Analyzing content for tags...",
     
     // Settings
     aiConfig: "AI Config",
@@ -209,6 +233,7 @@ export const translations = {
     filesStored: "个文件",
     filename: "文件名",
     save: "保存",
+    saveQuiz: "保存测验",
     cancel: "取消",
     close: "关闭",
     download: "下载",
@@ -225,15 +250,31 @@ export const translations = {
     chat: "AI 对话",
     settings: "设置",
     editor: "编辑",
-    split: "分屏",
+    split: "分屏浏览",
+    addPane: "添加分屏",
     preview: "预览",
     graph: "图谱",
     library: "库视图",
     analytics: "分析",
     aiActions: "AI 操作",
+    sectionEditing: "编辑",
+    sectionGeneration: "生成",
+    sectionDeepAnalysis: "深度分析",
     smartOrganize: "智能整理",
     extractEntities: "提取实体",
     dictation: "语音输入",
+    compareActive: "与当前文件对比",
+    diffView: "差异审查",
+    diffViewMode: "差异模式",
+    unifiedDiff: "统一视图",
+    splitDiff: "分屏视图",
+    acceptChanges: "接受更改",
+    rejectChanges: "拒绝",
+    applyMerge: "合并到当前",
+    original: "原始",
+    modified: "修改 / 选中",
+    noDiff: "未发现文件差异。",
+    smartSave: "智能保存",
     
     // Sidebar
     files: "文件",
@@ -312,6 +353,7 @@ export const translations = {
     passedMsg: "你已通过本次考试。",
     failedMsg: "很遗憾，本次未达到及格线。",
     returnEditor: "返回编辑器",
+    addToBank: "保存到题库",
     
     // Analytics
     knowledgeAnalytics: "知识分析",
@@ -353,6 +395,11 @@ export const translations = {
     retry: "重试",
     analysisFailed: "分析失败",
     analyzing: "正在分析内容...",
+    smartSaveTitle: "智能标签保存",
+    suggestedTags: "建议标签",
+    addTag: "添加标签...",
+    confirmSave: "确认并保存",
+    analyzingTags: "正在分析标签...",
     
     // Settings
     aiConfig: "AI 配置",

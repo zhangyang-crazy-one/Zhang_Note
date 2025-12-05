@@ -262,6 +262,8 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({
       if (!e.target.files?.[0]) return;
       if (!importPassword) {
           alert("Please enter the password to decrypt this backup.");
+          // Reset input to allow retry
+          if (importInputRef.current) importInputRef.current.value = '';
           return;
       }
       setIsImporting(true);
@@ -275,6 +277,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({
           alert(`Import failed: ${e.message}`);
       } finally {
           setIsImporting(false);
+          // Important: Reset the input so the same file can be selected again if retry is needed
           if (importInputRef.current) importInputRef.current.value = '';
       }
   };

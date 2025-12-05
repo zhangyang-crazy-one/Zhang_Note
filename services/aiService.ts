@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { AIConfig, MarkdownFile, GraphData, Quiz, ChatMessage, QuizQuestion, GradingResult } from "../types";
 
@@ -135,31 +136,37 @@ const convertToolsToOpenAI = (tools: Tool): any[] | undefined => {
 // --- Helper: Configuration Resolver ---
 const resolveOpenAIConfig = (config: AIConfig) => {
     let baseUrl = config.baseUrl;
-    let apiKey = config.apiKey;
+    const apiKey = config.apiKey;
     let model = config.model;
 
-    if (config.provider === 'openai') {
-        // Only set default if not provided, allowing user to override for proxies
-        if (!baseUrl || baseUrl.trim() === '') {
+    // Default URLs if missing
+    if (!baseUrl || baseUrl.trim() === '') {
+        if (config.provider === 'openai') {
             baseUrl = 'https://api.openai.com/v1';
+        } else if (config.provider === 'ollama') {
+            baseUrl = 'http://localhost:11434/v1';
         }
-        if (!model) model = 'gpt-4o';
-    } else if (config.provider === 'ollama') {
-        if (!baseUrl || baseUrl.trim() === '') {
-            baseUrl = 'http://localhost:11434';
-        }
-        // Normalize: Ensure we point to the v1 compatible endpoint for Ollama
-        if (!baseUrl.includes('/v1')) {
-            // Remove trailing slash if present then append /v1
-            baseUrl = `${baseUrl.replace(/\/$/, '')}/v1`;
-        }
-        if (!model) model = 'llama3';
     }
 
-    // Ensure no trailing slash for clean concatenation later
-    baseUrl = baseUrl ? baseUrl.replace(/\/$/, '') : '';
+    // Default Models if missing
+    if (!model) {
+        if (config.provider === 'openai') model = 'gpt-4o';
+        else if (config.provider === 'ollama') model = 'llama3';
+    }
 
-    return { baseUrl, apiKey, model };
+    // URL Normalization
+    if (baseUrl) {
+        // Remove trailing slash
+        baseUrl = baseUrl.replace(/\/+$/, '');
+        
+        // Auto-fix for Ollama: If user entered "http://localhost:11434" without /v1, append it
+        // This ensures compatibility with standard OpenAI client libraries
+        if (config.provider === 'ollama' && !baseUrl.endsWith('/v1')) {
+            baseUrl = `${baseUrl}/v1`;
+        }
+    }
+
+    return { baseUrl: baseUrl || '', apiKey, model };
 };
 
 // --- Helper: Embedding ---
@@ -177,10 +184,11 @@ export const getEmbedding = async (text: string, config: AIConfig): Promise<numb
             return result.embeddings?.[0]?.values || [];
         } 
         
-        // OpenAI / Ollama Logic
+        // OpenAI / Ollama Logic (Unified)
         const { baseUrl, apiKey } = resolveOpenAIConfig(config);
-        let model = config.embeddingModel;
         
+        // Determine model name
+        let model = config.embeddingModel;
         if (!model) {
             model = config.provider === 'openai' ? 'text-embedding-3-small' : 'nomic-embed-text';
         }
@@ -188,6 +196,8 @@ export const getEmbedding = async (text: string, config: AIConfig): Promise<numb
         const headers: any = { 'Content-Type': 'application/json' };
         if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
+        // OpenAI-compatible embedding endpoint is /embeddings
+        // resolveOpenAIConfig ensures baseUrl ends in /v1 for Ollama/OpenAI
         const response = await fetch(`${baseUrl}/embeddings`, {
             method: 'POST',
             headers,
@@ -197,7 +207,11 @@ export const getEmbedding = async (text: string, config: AIConfig): Promise<numb
             })
         });
 
-        if (!response.ok) return [];
+        if (!response.ok) {
+            console.warn(`Embedding failed (${response.status}):`, await response.text());
+            return [];
+        }
+        
         const data = await response.json();
         return data.data?.[0]?.embedding || [];
 
@@ -555,6 +569,8 @@ export const assessImportance = async (content: string, config: AIConfig): Promi
 };
 
 export const extractEntitiesAndRelationships = async (content: string, config: AIConfig): Promise<GraphData> => {
+    if (!content.trim()) return { nodes: [], links: [] };
+
     const prompt = `
     Analyze the provided text and perform entity-relationship abstraction.
     Identify key entities (concepts, people, places, organizations) and their semantic relationships.
@@ -610,7 +626,14 @@ export const generateKnowledgeGraph = async (files: MarkdownFile[], config: AICo
 };
 
 export const generateMindMap = async (content: string, config: AIConfig): Promise<string> => {
-    const prompt = `Create a Mermaid.js MindMap from this content. Return ONLY the mermaid code. Start with 'mindmap'.\n\n${content}`;
+    const prompt = `Create a Mermaid.js MindMap from this content. Return ONLY the mermaid code. Start with 'mindmap'.
+    
+    IMPORTANT SYNTAX RULES:
+    1. Do NOT use [[ ]] or [ ] in node text. It crashes the parser.
+    2. Replace wikilinks like [[Page Name]] with just "Page Name".
+    3. Keep text concise. 
+    
+    ${content}`;
     const res = await generateAIResponse(prompt, config, "You are a diagram expert.", true);
     return res.replace(/```mermaid/g, '').replace(/```/g, '').trim();
 };
