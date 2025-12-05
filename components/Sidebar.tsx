@@ -1,10 +1,13 @@
+
+
+
 import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   FileText, Plus, Trash2, FolderOpen, Search, X, FolderInput, 
   FileType, List, AlignLeft, ChevronRight, GraduationCap, 
   Folder, FileCode, FileImage, FileJson, FileSpreadsheet, File as FileIcon,
   Lock, Upload, Database, Loader2, RefreshCw, Edit2, Tag as TagIcon, Hash, Scissors, Copy,
-  GitCompare
+  GitCompare, Map as MapIcon
 } from 'lucide-react';
 import { MarkdownFile, RAGStats, Snippet } from '../types';
 import { translations, Language } from '../utils/translations';
@@ -30,6 +33,7 @@ interface SidebarProps {
   onInsertSnippet?: (text: string) => void;
   onGenerateExam?: (fileId: string) => void; 
   onCompareFile?: (id: string) => void;
+  onViewRoadmap?: () => void; // New prop for roadmap
 }
 
 interface OutlineItem {
@@ -303,7 +307,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onRefreshIndex,
   onInsertSnippet,
   onGenerateExam = () => {},
-  onCompareFile
+  onCompareFile,
+  onViewRoadmap
 }) => {
   const [activeTab, setActiveTab] = useState<'files' | 'outline' | 'tags' | 'snippets'>('files');
   const [outline, setOutline] = useState<OutlineItem[]>([]);
@@ -891,7 +896,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Action Footer */}
         <div className="p-2 border-t border-paper-200 dark:border-cyber-700 bg-paper-100 dark:bg-cyber-800 shrink-0">
-          <div className="grid grid-cols-4 gap-1">
+          <div className="grid grid-cols-5 gap-1">
             <button 
               onClick={() => handleOpenCreation('file', '')}
               className="flex flex-col items-center justify-center p-2 rounded-lg hover:bg-white dark:hover:bg-cyber-700 text-slate-500 hover:text-cyan-600 transition-all gap-1"
@@ -920,6 +925,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
                <GraduationCap size={18} />
             </button>
+            {onViewRoadmap && (
+                <button 
+                    onClick={onViewRoadmap}
+                    className="flex flex-col items-center justify-center p-2 rounded-lg hover:bg-white dark:hover:bg-cyber-700 text-slate-500 hover:text-indigo-500 transition-all gap-1"
+                    title="Study Roadmap"
+                >
+                    <MapIcon size={18} />
+                </button>
+            )}
           </div>
         </div>
 

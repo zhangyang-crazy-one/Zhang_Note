@@ -1,45 +1,37 @@
 
-
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Columns, 
-  Eye, 
   PenTool, 
   Sparkles, 
   Download, 
-  Trash2, 
   FileText,
   Menu,
   Sun,
   Moon,
   MessageSquare,
   Settings,
-  Zap,
   Maximize2,
-  Share2,
   Network,
-  Library,
-  Bold,
-  Italic,
-  BrainCircuit,
-  GraduationCap,
   Undo,
   Redo,
   PanelRightOpen,
   PanelRightClose,
   Mic,
-  Box,
   LayoutGrid,
   BarChart2,
   ChevronDown,
   Workflow,
   Lightbulb,
   FilePlus2,
-  GitCompare,
-  Save
+  Save,
+  CalendarCheck,
+  BrainCircuit,
+  GraduationCap
 } from 'lucide-react';
 import { ViewMode, Theme, AIProvider } from '../types';
 import { translations, Language } from '../utils/translations';
+import { createStudyPlanForFile } from '../services/srsService';
 
 interface ToolbarProps {
   viewMode: ViewMode;
@@ -82,6 +74,10 @@ interface ToolbarProps {
   
   // Smart Save
   onSmartSave?: () => void;
+
+  // Current File Data for SRS
+  activeFile?: any; 
+  onViewRoadmap?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -116,7 +112,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isDictating,
   onToggleDictation,
   onSmartOrganize,
-  onSmartSave
+  onSmartSave,
+  activeFile,
+  onViewRoadmap
 }) => {
   const t = translations[language];
   const [isAiMenuOpen, setIsAiMenuOpen] = useState(false);
@@ -131,6 +129,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const handleCreateStudyPlan = () => {
+      if (activeFile) {
+          createStudyPlanForFile(activeFile);
+          if (onViewRoadmap) {
+              onViewRoadmap();
+          } else {
+              alert("Study Plan Created! View it in the Roadmap.");
+          }
+          setIsAiMenuOpen(false);
+      } else {
+          alert("Please select a file first to create a study plan.");
+      }
+  };
 
   return (
     <div className="h-16 border-b border-paper-200 dark:border-cyber-700 bg-white/80 dark:bg-cyber-800/80 backdrop-blur-md flex items-center justify-between px-4 sticky top-0 z-30 transition-colors duration-300">
@@ -284,6 +296,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 <div className="my-1 h-px bg-paper-200 dark:bg-cyber-700"></div>
                 <div className="px-3 py-1.5 text-xs font-bold text-slate-400 uppercase tracking-wider">{t.sectionGeneration || "Generation"}</div>
                 
+                <button
+                  onClick={handleCreateStudyPlan}
+                  className="w-full text-left px-4 py-2 hover:bg-paper-100 dark:hover:bg-cyber-700 text-sm text-slate-700 dark:text-slate-200 flex items-center gap-2"
+                >
+                  <CalendarCheck size={14} className="text-indigo-500" /> Create Study Plan (SRS)
+                </button>
+
                 <button
                   onClick={() => { onGenerateMindMap(); setIsAiMenuOpen(false); }}
                   className="w-full text-left px-4 py-2 hover:bg-paper-100 dark:hover:bg-cyber-700 text-sm text-slate-700 dark:text-slate-200 flex items-center gap-2"

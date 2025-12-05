@@ -3,11 +3,16 @@
 
 
 
+
+
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Quiz, AIConfig, Theme, MistakeRecord } from '../types';
 import { CheckCircle2, XCircle, HelpCircle, Download, BookOpen, AlertTriangle, ArrowRight, ArrowLeft, RotateCcw, BookmarkX, Trash2, Sparkles, Loader2, Clock, Check, Award, BarChart2, Star, ThumbsUp, Lightbulb, Timer, Save, Database } from 'lucide-react';
 import { gradeQuizQuestion, generateQuizExplanation, gradeSubjectiveAnswer } from '../services/aiService';
 import { saveExamResult } from '../services/analyticsService';
+import { createStudyPlanForMistake } from '../services/srsService';
 import { translations, Language } from '../utils/translations';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -73,6 +78,9 @@ export const QuizPanel: React.FC<QuizPanelProps> = ({ quiz, aiConfig, theme, onC
     const updated = [record, ...savedMistakes];
     setSavedMistakes(updated);
     localStorage.setItem('neon-quiz-mistakes', JSON.stringify(updated));
+    
+    // Automatically schedule SRS review for this mistake
+    createStudyPlanForMistake(record);
   };
 
   const deleteMistake = (id: string) => {
@@ -313,7 +321,8 @@ export const QuizPanel: React.FC<QuizPanelProps> = ({ quiz, aiConfig, theme, onC
          const existingMistake = savedMistakes.find(m => m.question === q.question);
          if (existingMistake) {
              const updatedMistake = { ...existingMistake, explanation };
-             saveMistake(updatedMistake); // overwrite
+             setSavedMistakes(prev => prev.map(m => m.id === existingMistake.id ? updatedMistake : m));
+             localStorage.setItem('neon-quiz-mistakes', JSON.stringify(savedMistakes.map(m => m.id === existingMistake.id ? updatedMistake : m)));
          }
 
       } catch (e) {

@@ -23,7 +23,8 @@ export enum ViewMode {
   NoteSpace = 'NOTE_SPACE',
   Library = 'LIBRARY',
   Analytics = 'ANALYTICS',
-  Diff = 'DIFF'
+  Diff = 'DIFF',
+  Roadmap = 'ROADMAP'
 }
 
 export type ThemeType = 'dark' | 'light';
@@ -267,6 +268,27 @@ export interface SearchResult {
   }[];
   lastModified: number;
   tags: string[];
+}
+
+// --- Spaced Repetition Types ---
+
+export interface ReviewTask {
+  id: string;
+  scheduledDate: number; // Timestamp
+  completedDate?: number; // Timestamp or undefined
+  status: 'pending' | 'completed' | 'overdue' | 'future';
+  intervalLabel: string; // e.g., "5 mins", "1 day"
+}
+
+export interface StudyPlan {
+  id: string;
+  title: string;
+  sourceType: 'file' | 'mistake';
+  sourceId: string; // ID of the file or MistakeRecord
+  createdDate: number;
+  tasks: ReviewTask[];
+  progress: number; // 0-100
+  tags?: string[];
 }
 
 // --- Web Speech API Types ---
