@@ -1,0 +1,169 @@
+import { ipcMain, dialog, net } from 'electron';
+import fs from 'fs';
+import path from 'path';
+import { logger } from '../utils/logger.js';
+
+import type { MarkdownFile } from '../database/repositories/fileRepository.js';
+
+export interface FileFilter {
+    name: string;
+    extensions: string[];
+}
+
+export function registerFileHandlers(): void {
+    logger.info('Registering file system IPC handlers');
+
+    // Open directory picker and read markdown files
+    ipcMain.handle('fs:openDirectory', async () => {
+        try {
+            const result = await dialog.showOpenDialog({
+                properties: ['openDirectory']
+            });
+
+            if (result.canceled || !result.filePaths[0]) {
+                return null;
+            }
+
+            const dirPath = result.filePaths[0];
+            const files = await readMarkdownDirectory(dirPath);
+
+            return {
+                path: dirPath,
+                files
+            };
+        } catch (error) {
+            logger.error('fs:openDirectory failed', error);
+            throw error;
+        }
+    });
+
+    // Read a single file
+    ipcMain.handle('fs:readFile', async (_, filePath: string) => {
+        try {
+            const content = fs.readFileSync(filePath, 'utf-8');
+            return content;
+        } catch (error) {
+            logger.error('fs:readFile failed', error);
+            throw error;
+        }
+    });
+
+    // Write content to a file
+    ipcMain.handle('fs:writeFile', async (_, filePath: string, content: string) => {
+        try {
+            fs.writeFileSync(filePath, content, 'utf-8');
+            return true;
+        } catch (error) {
+            logger.error('fs:writeFile failed', error);
+            throw error;
+        }
+    });
+
+    // Select a file with optional filters
+    ipcMain.handle('fs:selectFile', async (_, filters?: FileFilter[]) => {
+        try {
+            const result = await dialog.showOpenDialog({
+                properties: ['openFile'],
+                filters: filters || [
+                    { name: 'Markdown Files', extensions: ['md', 'markdown'] },
+                    { name: 'All Files', extensions: ['*'] }
+                ]
+            });
+
+            if (result.canceled || !result.filePaths[0]) {
+                return null;
+            }
+
+            const filePath = result.filePaths[0];
+            const content = fs.readFileSync(filePath, 'utf-8');
+
+            return {
+                path: filePath,
+                content
+            };
+        } catch (error) {
+            logger.error('fs:selectFile failed', error);
+            throw error;
+        }
+    });
+
+    // Save file with dialog
+    ipcMain.handle('fs:saveFileAs', async (_, content: string, defaultName: string) => {
+        try {
+            const result = await dialog.showSaveDialog({
+                defaultPath: defaultName,
+                filters: [
+                    { name: 'Markdown Files', extensions: ['md'] },
+                    { name: 'All Files', extensions: ['*'] }
+                ]
+            });
+
+            if (result.canceled || !result.filePath) {
+                return null;
+            }
+
+            fs.writeFileSync(result.filePath, content, 'utf-8');
+            return result.filePath;
+        } catch (error) {
+            logger.error('fs:saveFileAs failed', error);
+            throw error;
+        }
+    });
+
+    // Select PDF file
+    ipcMain.handle('fs:selectPdf', async () => {
+        try {
+            const result = await dialog.showOpenDialog({
+                properties: ['openFile'],
+                filters: [
+                    { name: 'PDF Files', extensions: ['pdf'] }
+                ]
+            });
+
+            if (result.canceled || !result.filePaths[0]) {
+                return null;
+            }
+
+            const filePath = result.filePaths[0];
+            const buffer = fs.readFileSync(filePath);
+
+            return {
+                path: filePath,
+                name: path.basename(filePath, '.pdf'),
+                buffer: buffer.toString('base64')  // Send as base64 for renderer
+            };
+        } catch (error) {
+            logger.error('fs:selectPdf failed', error);
+            throw error;
+        }
+    });
+
+    logger.info('File system IPC handlers registered');
+}
+
+/**
+ * Read all markdown files from a directory
+ */
+async function readMarkdownDirectory(dirPath: string): Promise<MarkdownFile[]> {
+    const files: MarkdownFile[] = [];
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+
+    for (const entry of entries) {
+        if (entry.isFile() && (entry.name.endsWith('.md') || entry.name.endsWith('.markdown'))) {
+            const filePath = path.join(dirPath, entry.name);
+            const content = fs.readFileSync(filePath, 'utf-8');
+            const stats = fs.statSync(filePath);
+
+            files.push({
+                id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                name: entry.name.replace(/\.(md|markdown)$/, ''),
+                content,
+                lastModified: stats.mtimeMs,
+                filePath,
+                isLocal: true
+            });
+        }
+    }
+
+    return files;
+}

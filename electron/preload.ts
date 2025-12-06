@@ -1,0 +1,353 @@
+// Force this file to be treated as a module
+export {};
+
+console.log('[Preload] Script starting...');
+
+const { contextBridge, ipcRenderer } = require('electron');
+
+console.log('[Preload] Electron modules loaded, contextBridge:', !!contextBridge);
+
+// Types are inlined to avoid ESM import issues in preload context
+// These match the definitions in the respective repository files
+
+interface MarkdownFile {
+    id: string;
+    name: string;
+    content: string;
+    path?: string;
+    folderId?: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+interface AIConfig {
+    provider: string;
+    model: string;
+    apiKey: string;
+    baseUrl?: string;
+    temperature?: number;
+    maxTokens?: number;
+}
+
+interface ChatMessage {
+    id: string;
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    timestamp: string;
+}
+
+interface AppTheme {
+    id: string;
+    name: string;
+    type: 'light' | 'dark';
+    colors: Record<string, string>;
+    isBuiltin?: boolean;
+}
+
+interface MistakeRecord {
+    id: string;
+    question: string;
+    userAnswer: string;
+    correctAnswer: string;
+    explanation?: string;
+    sourceFile?: string;
+    createdAt: string;
+}
+
+interface FileFilter {
+    name: string;
+    extensions: string[];
+}
+
+interface FetchResult {
+    status: number;
+    data: unknown;
+    headers: Record<string, string>;
+}
+
+interface DatabaseExport {
+    version: number;
+    exportedAt: string;
+    files: MarkdownFile[];
+    config: AIConfig;
+    chatMessages: ChatMessage[];
+    themes: AppTheme[];
+    settings: Record<string, string>;
+    mistakes: MistakeRecord[];
+}
+
+interface MCPTool {
+    name: string;
+    description?: string;
+    inputSchema?: Record<string, unknown>;
+    serverName?: string;
+}
+
+interface MCPServerStatus {
+    name: string;
+    connected: boolean;
+    toolsCount: number;
+    error?: string;
+}
+
+// Expose protected methods to renderer
+console.log('[Preload] About to call contextBridge.exposeInMainWorld...');
+try {
+    contextBridge.exposeInMainWorld('electronAPI', {
+    // Platform information
+    platform: {
+        isElectron: true,
+        os: process.platform as 'win32' | 'darwin' | 'linux',
+        arch: process.arch,
+        version: process.versions.electron
+    },
+
+    // Window control (for custom title bar)
+    window: {
+        minimize: (): Promise<void> => ipcRenderer.invoke('window:minimize'),
+        maximize: (): Promise<void> => ipcRenderer.invoke('window:maximize'),
+        close: (): Promise<void> => ipcRenderer.invoke('window:close'),
+        isMaximized: (): Promise<boolean> => ipcRenderer.invoke('window:isMaximized'),
+        onMaximizedChange: (callback: (isMaximized: boolean) => void) => {
+            const handler = (_event: any, isMaximized: boolean) => callback(isMaximized);
+            ipcRenderer.on('window:maximized', handler);
+            return () => ipcRenderer.removeListener('window:maximized', handler);
+        }
+    },
+
+    // Database operations
+    db: {
+        // Files
+        files: {
+            getAll: (): Promise<MarkdownFile[]> =>
+                ipcRenderer.invoke('db:files:getAll'),
+            get: (id: string): Promise<MarkdownFile | null> =>
+                ipcRenderer.invoke('db:files:get', id),
+            create: (file: MarkdownFile): Promise<MarkdownFile> =>
+                ipcRenderer.invoke('db:files:create', file),
+            update: (id: string, updates: Partial<MarkdownFile>): Promise<MarkdownFile | null> =>
+                ipcRenderer.invoke('db:files:update', id, updates),
+            delete: (id: string): Promise<boolean> =>
+                ipcRenderer.invoke('db:files:delete', id)
+        },
+
+        // AI Config
+        config: {
+            get: (): Promise<AIConfig> =>
+                ipcRenderer.invoke('db:config:get'),
+            set: (config: AIConfig): Promise<AIConfig> =>
+                ipcRenderer.invoke('db:config:set', config)
+        },
+
+        // Chat
+        chat: {
+            getAll: (conversationId?: string): Promise<ChatMessage[]> =>
+                ipcRenderer.invoke('db:chat:getAll', conversationId),
+            add: (message: ChatMessage, conversationId?: string): Promise<ChatMessage> =>
+                ipcRenderer.invoke('db:chat:add', message, conversationId),
+            clear: (conversationId?: string): Promise<void> =>
+                ipcRenderer.invoke('db:chat:clear', conversationId)
+        },
+
+        // Themes
+        themes: {
+            getAll: (): Promise<AppTheme[]> =>
+                ipcRenderer.invoke('db:themes:getAll'),
+            save: (theme: AppTheme): Promise<AppTheme> =>
+                ipcRenderer.invoke('db:themes:save', theme),
+            delete: (id: string): Promise<boolean> =>
+                ipcRenderer.invoke('db:themes:delete', id)
+        },
+
+        // Settings
+        settings: {
+            get: (key: string): Promise<string | null> =>
+                ipcRenderer.invoke('db:settings:get', key),
+            set: (key: string, value: string): Promise<void> =>
+                ipcRenderer.invoke('db:settings:set', key, value)
+        },
+
+        // Mistakes
+        mistakes: {
+            getAll: (): Promise<MistakeRecord[]> =>
+                ipcRenderer.invoke('db:mistakes:getAll'),
+            add: (record: MistakeRecord): Promise<MistakeRecord> =>
+                ipcRenderer.invoke('db:mistakes:add', record),
+            delete: (id: string): Promise<boolean> =>
+                ipcRenderer.invoke('db:mistakes:delete', id)
+        },
+
+        // Vectors
+        vectors: {
+            needsIndexing: (fileId: string, lastModified: number): Promise<boolean> =>
+                ipcRenderer.invoke('db:vectors:needsIndexing', fileId, lastModified),
+            getByFile: (fileId: string): Promise<any[]> =>
+                ipcRenderer.invoke('db:vectors:getByFile', fileId),
+            getAll: (): Promise<any[]> =>
+                ipcRenderer.invoke('db:vectors:getAll'),
+            save: (fileId: string, chunks: any[], lastModified: number, model?: string, provider?: string): Promise<void> =>
+                ipcRenderer.invoke('db:vectors:save', fileId, chunks, lastModified, model, provider),
+            deleteByFile: (fileId: string): Promise<void> =>
+                ipcRenderer.invoke('db:vectors:deleteByFile', fileId),
+            getMeta: (): Promise<any[]> =>
+                ipcRenderer.invoke('db:vectors:getMeta'),
+            clear: (): Promise<void> =>
+                ipcRenderer.invoke('db:vectors:clear'),
+            getStats: (): Promise<{ totalFiles: number; totalChunks: number }> =>
+                ipcRenderer.invoke('db:vectors:getStats')
+        }
+    },
+
+    // File system operations
+    fs: {
+        openDirectory: (): Promise<{ path: string; files: MarkdownFile[] } | null> =>
+            ipcRenderer.invoke('fs:openDirectory'),
+        readFile: (path: string): Promise<string> =>
+            ipcRenderer.invoke('fs:readFile', path),
+        writeFile: (path: string, content: string): Promise<boolean> =>
+            ipcRenderer.invoke('fs:writeFile', path, content),
+        selectFile: (filters?: FileFilter[]): Promise<{ path: string; content: string } | null> =>
+            ipcRenderer.invoke('fs:selectFile', filters),
+        saveFileAs: (content: string, defaultName: string): Promise<string | null> =>
+            ipcRenderer.invoke('fs:saveFileAs', content, defaultName),
+        selectPdf: (): Promise<{ path: string; name: string; buffer: string } | null> =>
+            ipcRenderer.invoke('fs:selectPdf')
+    },
+
+    // AI proxy for CORS-free requests
+    ai: {
+        fetch: (url: string, options: RequestInit): Promise<FetchResult> =>
+            ipcRenderer.invoke('ai:fetch', url, options)
+    },
+
+    // Data sync operations
+    sync: {
+        exportData: (): Promise<DatabaseExport> =>
+            ipcRenderer.invoke('sync:exportData'),
+        importData: (jsonData: DatabaseExport): Promise<{ success: boolean; imported: Record<string, number>; errors: string[] }> =>
+            ipcRenderer.invoke('sync:importData', jsonData)
+    },
+
+    // MCP operations
+    mcp: {
+        loadConfig: (configStr: string): Promise<{ success: boolean; error?: string }> =>
+            ipcRenderer.invoke('mcp:loadConfig', configStr),
+        getTools: (): Promise<MCPTool[]> =>
+            ipcRenderer.invoke('mcp:getTools'),
+        callTool: (name: string, args: any): Promise<{ success: boolean; result?: any; error?: string }> =>
+            ipcRenderer.invoke('mcp:callTool', name, args),
+        getStatuses: (): Promise<MCPServerStatus[]> =>
+            ipcRenderer.invoke('mcp:getStatuses'),
+        disconnectAll: (): Promise<{ success: boolean; error?: string }> =>
+            ipcRenderer.invoke('mcp:disconnectAll')
+    },
+
+    // Menu event listeners
+    onMenuEvent: (channel: string, callback: () => void) => {
+        const validChannels = [
+            'menu:newFile',
+            'menu:openFolder',
+            'menu:importFile',
+            'menu:save',
+            'menu:export',
+            'menu:toggleSidebar',
+            'menu:toggleChat'
+        ];
+
+        if (validChannels.includes(channel)) {
+            ipcRenderer.on(channel, callback);
+            return () => ipcRenderer.removeListener(channel, callback);
+        }
+        return () => {};
+    }
+});
+    console.log('[Preload] contextBridge.exposeInMainWorld completed successfully!');
+} catch (error) {
+    console.error('[Preload] Error in exposeInMainWorld:', error);
+}
+
+// Type declaration for renderer
+declare global {
+    interface Window {
+        electronAPI: {
+            platform: {
+                isElectron: boolean;
+                os: 'win32' | 'darwin' | 'linux';
+                arch: string;
+                version: string;
+            };
+            window: {
+                minimize: () => Promise<void>;
+                maximize: () => Promise<void>;
+                close: () => Promise<void>;
+                isMaximized: () => Promise<boolean>;
+                onMaximizedChange: (callback: (isMaximized: boolean) => void) => () => void;
+            };
+            db: {
+                files: {
+                    getAll: () => Promise<MarkdownFile[]>;
+                    get: (id: string) => Promise<MarkdownFile | null>;
+                    create: (file: MarkdownFile) => Promise<MarkdownFile>;
+                    update: (id: string, updates: Partial<MarkdownFile>) => Promise<MarkdownFile | null>;
+                    delete: (id: string) => Promise<boolean>;
+                };
+                config: {
+                    get: () => Promise<AIConfig>;
+                    set: (config: AIConfig) => Promise<AIConfig>;
+                };
+                chat: {
+                    getAll: (conversationId?: string) => Promise<ChatMessage[]>;
+                    add: (message: ChatMessage, conversationId?: string) => Promise<ChatMessage>;
+                    clear: (conversationId?: string) => Promise<void>;
+                };
+                themes: {
+                    getAll: () => Promise<AppTheme[]>;
+                    save: (theme: AppTheme) => Promise<AppTheme>;
+                    delete: (id: string) => Promise<boolean>;
+                };
+                settings: {
+                    get: (key: string) => Promise<string | null>;
+                    set: (key: string, value: string) => Promise<void>;
+                };
+                mistakes: {
+                    getAll: () => Promise<MistakeRecord[]>;
+                    add: (record: MistakeRecord) => Promise<MistakeRecord>;
+                    delete: (id: string) => Promise<boolean>;
+                };
+                vectors: {
+                    needsIndexing: (fileId: string, lastModified: number) => Promise<boolean>;
+                    getByFile: (fileId: string) => Promise<any[]>;
+                    getAll: () => Promise<any[]>;
+                    save: (fileId: string, chunks: any[], lastModified: number, model?: string, provider?: string) => Promise<void>;
+                    deleteByFile: (fileId: string) => Promise<void>;
+                    getMeta: () => Promise<any[]>;
+                    clear: () => Promise<void>;
+                    getStats: () => Promise<{ totalFiles: number; totalChunks: number }>;
+                };
+            };
+            fs: {
+                openDirectory: () => Promise<{ path: string; files: MarkdownFile[] } | null>;
+                readFile: (path: string) => Promise<string>;
+                writeFile: (path: string, content: string) => Promise<boolean>;
+                selectFile: (filters?: FileFilter[]) => Promise<{ path: string; content: string } | null>;
+                saveFileAs: (content: string, defaultName: string) => Promise<string | null>;
+                selectPdf: () => Promise<{ path: string; name: string; buffer: string } | null>;
+            };
+            ai: {
+                fetch: (url: string, options: RequestInit) => Promise<FetchResult>;
+            };
+            sync: {
+                exportData: () => Promise<DatabaseExport>;
+                importData: (jsonData: DatabaseExport) => Promise<{ success: boolean; imported: Record<string, number>; errors: string[] }>;
+            };
+            mcp: {
+                loadConfig: (configStr: string) => Promise<{ success: boolean; error?: string }>;
+                getTools: () => Promise<MCPTool[]>;
+                callTool: (name: string, args: any) => Promise<{ success: boolean; result?: any; error?: string }>;
+                getStatuses: () => Promise<MCPServerStatus[]>;
+                disconnectAll: () => Promise<{ success: boolean; error?: string }>;
+            };
+            onMenuEvent: (channel: string, callback: () => void) => () => void;
+        };
+    }
+}
